@@ -64,9 +64,9 @@ class MagicPasteService : Service() {
             }
 
             else -> {
-                val port = intent?.getIntExtra(EXTRA_PORT, 0)?.takeIf { it > 0 }
-                    ?: magicPaste.settings.port
-                controller.start(port)
+                val settings = magicPaste.settings
+                val port = intent?.getIntExtra(EXTRA_PORT, 0)?.takeIf { it > 0 } ?: settings.port
+                controller.start(port, settings.pin, settings.shareClipboard, settings.shareFiles)
             }
         }
         return START_STICKY

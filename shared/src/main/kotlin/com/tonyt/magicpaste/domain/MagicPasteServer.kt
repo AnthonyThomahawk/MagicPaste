@@ -1,6 +1,7 @@
 package com.tonyt.magicpaste.domain
 
 import io.ktor.http.ContentType
+import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -24,10 +25,13 @@ import kotlinx.serialization.json.Json
 
 /**
  * HTTP server that shares one device's clipboard with every browser on the same
- * Wi-Fi network.
+ * Wi-Fi network, behind the PIN shown in the app.
  *
- * Endpoints:
- * - `GET  /`                      the web UI
+ * Endpoints (everything but `/health` needs a session cookie or the PIN header):
+ * - `GET  /`                      the web UI, or the PIN prompt when unauthenticated
+ * - `GET  /files`                 the file manager, when a [FileStore] was supplied
+ * - `GET  /api/files…`            listing, download, upload, rename, move, delete
+ * - `POST /api/session`           `{"pin": "..."}` — exchanges the PIN for a session cookie
  * - `GET  /api/clipboard`         current snapshot as JSON
  * - `GET  /api/clipboard?since=N` long-polls, returning once the revision passes N
  * - `POST /api/clipboard`         `{"text": "..."}` — replaces the device clipboard
@@ -36,7 +40,12 @@ import kotlinx.serialization.json.Json
  * - `GET  /health`                liveness probe
  */
 class MagicPasteServer(
-    private val clipboard: ClipboardAccess,
+    /** Null leaves the clipboard unshared — the routes are simply not mounted. */
+    private val clipboard: ClipboardAccess?,
+    private val gate: PinGate,
+    private val device: String = "",
+    /** Null leaves the file manager unshared. */
+    private val files: FileStore? = null,
     val port: Int = DEFAULT_PORT,
     private val host: String = ALL_INTERFACES,
 ) {
@@ -48,7 +57,9 @@ class MagicPasteServer(
      */
     suspend fun start() {
         check(engine == null) { "Server is already running on port $port" }
-        val server = embeddedServer(CIO, port = port, host = host) { magicPasteModule(clipboard) }
+        val server = embeddedServer(CIO, port = port, host = host) {
+            magicPasteModule(clipboard, gate, device, files)
+        }
         engine = server
         try {
             withContext(Dispatchers.IO) { server.start(wait = false) }
@@ -85,26 +96,140 @@ private val json = Json { encodeDefaults = true }
 @Serializable
 private data class WriteRequest(val text: String)
 
-/** Wires up the routes; separated from [MagicPasteServer] so tests can host them directly. */
-fun Application.magicPasteModule(clipboard: ClipboardAccess) {
-    routing {
-        get("/") { call.respondText(WEB_UI_HTML, ContentType.Text.Html) }
+@Serializable
+private data class SessionRequest(val pin: String)
 
+/**
+ * Wires up the routes; separated from [MagicPasteServer] so tests can host them
+ * directly. [device] is what the page shows visitors — "OnePlus CPH2747 -
+ * Android 16" — so they can tell whose clipboard they are looking at.
+ */
+fun Application.magicPasteModule(
+    clipboard: ClipboardAccess? = null,
+    gate: PinGate,
+    device: String = "",
+    files: FileStore? = null,
+) {
+    // Substituted once, not per request: none of this changes while the server
+    // is up, and the cross-links depend on what is actually mounted — an offer
+    // to visit a page that is not there is worse than no offer.
+    val clipboardPage = WEB_UI_HTML
+        .replace(DEVICE_PLACEHOLDER, device.escapeHtml())
+        .replace(FILES_LINK_PLACEHOLDER, if (files != null) FILES_LINK_HTML else "")
+    val filesPage = FILES_HTML
+        .replace(DEVICE_PLACEHOLDER, device.escapeHtml())
+        .replace(CLIPBOARD_LINK_PLACEHOLDER, if (clipboard != null) CLIPBOARD_LINK_HTML else "")
+
+    // Whichever page exists is what the bare address should land on, so sharing
+    // only files still means "open the address and you are there".
+    val landingPage = clipboardPage.takeIf { clipboard != null } ?: filesPage.takeIf { files != null }
+
+    routing {
+        // The one unauthenticated read: it says whether a server is here, nothing
+        // about what it holds, which is what makes it useful for "is it up?".
         get("/health") { call.respondText("ok", ContentType.Text.Plain) }
 
-        get("/api/clipboard") {
-            val since = call.request.queryParameters["since"]?.toLongOrNull()
-            call.respondSnapshot(clipboard.await(since))
+        get("/") {
+            if (landingPage == null) {
+                call.respondText("Nothing is being shared", status = HttpStatusCode.ServiceUnavailable)
+                return@get
+            }
+            // The prompt stays anonymous: someone who cannot get past it learns
+            // nothing about the device from us.
+            val page = if (gate.admits(call)) landingPage else LOGIN_HTML
+            call.respondText(page, ContentType.Text.Html)
         }
 
-        // PUT and POST do the same thing here; both spellings are common in clients.
-        post("/api/clipboard") { call.writeFromJson(clipboard) }
-        put("/api/clipboard") { call.writeFromJson(clipboard) }
+        post("/api/session") { call.openSession(gate) }
 
-        get("/raw") { call.respondText(clipboard.snapshot.value.text, ContentType.Text.Plain) }
-        post("/raw") { call.writeFromPlainText(clipboard) }
-        put("/raw") { call.writeFromPlainText(clipboard) }
+        if (clipboard != null) {
+            get("/api/clipboard") {
+                call.guarded(gate) {
+                    val since = call.request.queryParameters["since"]?.toLongOrNull()
+                    call.respondSnapshot(clipboard.await(since))
+                }
+            }
+
+            // PUT and POST do the same thing here; both spellings are common in clients.
+            post("/api/clipboard") { call.guarded(gate) { call.writeFromJson(clipboard) } }
+            put("/api/clipboard") { call.guarded(gate) { call.writeFromJson(clipboard) } }
+
+            get("/raw") {
+                call.guarded(gate) {
+                    call.respondText(clipboard.snapshot.value.text, ContentType.Text.Plain)
+                }
+            }
+            post("/raw") { call.guarded(gate) { call.writeFromPlainText(clipboard) } }
+            put("/raw") { call.guarded(gate) { call.writeFromPlainText(clipboard) } }
+        }
+
+        if (files != null) {
+            get("/files") {
+                val page = if (gate.admits(call)) filesPage else LOGIN_HTML
+                call.respondText(page, ContentType.Text.Html)
+            }
+            // A refused file operation is an expected outcome, not a server
+            // fault, so it becomes a status code here rather than a 500.
+            fileRoutes(files) { block ->
+                guarded(gate) {
+                    try {
+                        block()
+                    } catch (refusal: FileStoreException) {
+                        respondText(refusal.message ?: "Refused", status = refusal.status())
+                    }
+                }
+            }
+        }
     }
+}
+
+/**
+ * Runs [block] only for a caller holding a session cookie or the PIN itself.
+ *
+ * Spelled out at each route rather than as a route-scoped plugin: with this few
+ * endpoints, a reader can see at a glance which ones are guarded, and the one
+ * that deliberately is not.
+ */
+private suspend fun ApplicationCall.guarded(gate: PinGate, block: suspend () -> Unit) {
+    if (!gate.admits(this)) {
+        respondText("Wrong or missing PIN", status = HttpStatusCode.Unauthorized)
+        return
+    }
+    block()
+}
+
+/** True when the call carries a live session cookie, or the PIN itself. */
+private suspend fun PinGate.admits(call: ApplicationCall): Boolean {
+    if (isValidSession(call.request.cookies[PinGate.SESSION_COOKIE])) return true
+    val offered = call.request.headers[PinGate.PIN_HEADER] ?: return false
+    return verify(offered)
+}
+
+/** Exchanges a correct PIN for a session cookie. */
+private suspend fun ApplicationCall.openSession(gate: PinGate) {
+    val offered = runCatching {
+        json.decodeFromString(SessionRequest.serializer(), receiveText()).pin
+    }.getOrElse {
+        respondText("""Expected a JSON body of the form {"pin": "..."}""", status = HttpStatusCode.BadRequest)
+        return
+    }
+
+    val token = gate.authenticate(offered)
+    if (token == null) {
+        respondText("Wrong PIN", status = HttpStatusCode.Unauthorized)
+        return
+    }
+
+    response.cookies.append(
+        Cookie(
+            name = PinGate.SESSION_COOKIE,
+            value = token,
+            path = "/",
+            httpOnly = true,
+            extensions = mapOf("SameSite" to "Strict"),
+        )
+    )
+    respondText("ok", ContentType.Text.Plain)
 }
 
 /**

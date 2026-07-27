@@ -1,7 +1,10 @@
 package com.tonyt.magicpaste.server
 
 import com.tonyt.magicpaste.domain.ClipboardAccess
+import com.tonyt.magicpaste.domain.FileStore
 import com.tonyt.magicpaste.domain.MagicPasteServer
+import com.tonyt.magicpaste.domain.PinGate
+import com.tonyt.magicpaste.domain.TokenSource
 import com.tonyt.magicpaste.net.LocalAddresses
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +33,17 @@ sealed interface ServerStatus {
  * state as a flow, so the activity and the foreground service can both drive and
  * observe it without holding a reference to each other.
  */
-class ServerController(private val clipboard: ClipboardAccess) {
+class ServerController(
+    private val clipboard: ClipboardAccess,
+    private val tokens: TokenSource,
+    private val device: String,
+    /**
+     * Consulted at every start rather than once: storage access can be granted
+     * after the app launches, and restarting sharing is what picks it up.
+     * Null means the file manager stays off.
+     */
+    private val files: () -> FileStore?,
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Mutex()
@@ -40,8 +53,15 @@ class ServerController(private val clipboard: ClipboardAccess) {
 
     private var server: MagicPasteServer? = null
 
-    /** Starts serving on [port]; a no-op if it is already up on that port. */
-    fun start(port: Int) {
+    /**
+     * Starts serving on [port], guarded by [pin], offering whichever of the
+     * clipboard and files is switched on.
+     *
+     * Both the gate and the choice of what to share are settled per start, so
+     * changing either takes a stop and a start. That is also what makes changing
+     * the PIN lock out visitors who already had a session.
+     */
+    fun start(port: Int, pin: String, shareClipboard: Boolean, shareFiles: Boolean) {
         scope.launch {
             lock.withLock {
                 val running = server
@@ -51,7 +71,13 @@ class ServerController(private val clipboard: ClipboardAccess) {
                     server = null
                 }
                 state.value = ServerStatus.Starting
-                val starting = MagicPasteServer(clipboard, port)
+                val starting = MagicPasteServer(
+                    clipboard = clipboard.takeIf { shareClipboard },
+                    gate = PinGate(pin, tokens),
+                    device = device,
+                    files = if (shareFiles) files() else null,
+                    port = port,
+                )
                 try {
                     starting.start()
                     server = starting

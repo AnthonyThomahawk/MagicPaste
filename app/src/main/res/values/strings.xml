@@ -13,9 +13,24 @@
     <string name="port_label">Port</string>
     <string name="port_error">Pick a port between %1$d and %2$d</string>
 
+    <string name="pin_label">PIN</string>
+    <string name="pin_hint">Visitors enter this in the browser before they see anything.</string>
+    <string name="pin_error">The PIN is %1$d digits</string>
+
     <string name="action_start">Start sharing</string>
     <string name="action_stop">Stop sharing</string>
     <string name="action_share">Share</string>
+    <string name="action_new_pin">New</string>
+
+    <string name="sharing_title">What to share</string>
+    <string name="share_clipboard">Clipboard</string>
+    <string name="share_clipboard_detail">Read and set this device\'s clipboard.</string>
+    <string name="share_files">Files</string>
+    <string name="share_files_detail">Browse, download, upload, rename and delete files.</string>
+    <string name="sharing_nothing">Turn on at least one of these to start sharing.</string>
+    <string name="files_needs_permission">MagicPaste needs All files access before it can share this device\'s files.</string>
+    <string name="files_settings_unavailable">This device has no All files access screen.</string>
+    <string name="action_grant_storage">Grant file access</string>
 
     <string name="shared_clipboard">Clipboard being shared</string>
     <string name="clipboard_empty">Nothing copied yet.</string>
