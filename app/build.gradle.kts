@@ -25,6 +25,9 @@ android {
         }
     }
     compileOptions {
+        // Ktor reaches for a handful of java.* APIs that only exist from API 26
+        // on; desugaring is what keeps minSdk at 24.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -34,10 +37,21 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            // Ktor and its transitive dependencies ship overlapping metadata.
+            excludes += setOf(
+                "META-INF/INDEX.LIST",
+                "META-INF/DEPENDENCIES",
+                "META-INF/{AL2.0,LGPL2.1}",
+            )
+        }
+    }
 }
 
 dependencies {
 
+    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -46,6 +60,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.kotlinx.coroutines.android)
+    coreLibraryDesugaring(libs.android.desugar.jdk.libs)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

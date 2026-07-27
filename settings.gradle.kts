@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MagicPaste"
 include(":app")
+include(":shared")

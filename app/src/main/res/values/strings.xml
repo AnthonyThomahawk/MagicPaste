@@ -1,3 +1,30 @@
 <resources>
     <string name="app_name">MagicPaste</string>
+    <string name="tagline">Share this device\'s clipboard with any browser on the same Wi‑Fi.</string>
+
+    <string name="status_running">Sharing on port %1$d</string>
+    <string name="status_starting">Starting…</string>
+    <string name="status_stopped">Not sharing</string>
+    <string name="status_failed">Could not start</string>
+
+    <string name="open_on_any_device">Open this on another device on the same network:</string>
+    <string name="no_network">Not connected to a network. Join a Wi‑Fi network or turn on a hotspot.</string>
+
+    <string name="port_label">Port</string>
+    <string name="port_error">Pick a port between %1$d and %2$d</string>
+
+    <string name="action_start">Start sharing</string>
+    <string name="action_stop">Stop sharing</string>
+    <string name="action_share">Share</string>
+
+    <string name="shared_clipboard">Clipboard being shared</string>
+    <string name="clipboard_empty">Nothing copied yet.</string>
+
+    <string name="focus_caveat">Android only lets apps read the clipboard while they are on screen. Anything you copy while MagicPaste is in the background shows up the next time you open it — text sent from a browser lands on the clipboard right away.</string>
+
+    <string name="notification_title">MagicPaste is sharing your clipboard</string>
+    <string name="notification_starting">Starting…</string>
+    <string name="notification_no_network">Waiting for a network connection</string>
+    <string name="notification_channel_name">Clipboard sharing</string>
+    <string name="notification_channel_description">Shown while the clipboard server is running.</string>
 </resources>
