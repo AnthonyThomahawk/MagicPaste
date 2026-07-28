@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -30,8 +31,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -88,6 +93,14 @@ class MainActivity : ComponentActivity() {
                 val status by app.serverController.status.collectAsState()
                 val clipboard by app.clipboard.snapshot.collectAsState()
                 val granted by storageGranted.collectAsState()
+                var showAbout by rememberSaveable { mutableStateOf(false) }
+
+                BackHandler(enabled = showAbout) { showAbout = false }
+
+                if (showAbout) {
+                    AboutScreen(onBack = { showAbout = false })
+                    return@MagicPasteTheme
+                }
 
                 MagicPasteScreen(
                     status = status,
@@ -102,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     onStop = { MagicPasteService.stop(this) },
                     onNewPin = app.settings::randomPin,
                     onGrantStorage = ::requestStorageAccess,
+                    onAbout = { showAbout = true },
                 )
             }
         }
@@ -173,6 +187,7 @@ fun MagicPasteScreen(
     onStop: () -> Unit,
     onNewPin: () -> String,
     onGrantStorage: () -> Unit,
+    onAbout: () -> Unit,
 ) {
     val context = LocalContext.current
     var portText by rememberSaveable { mutableStateOf(initialPort.toString()) }
@@ -204,12 +219,19 @@ fun MagicPasteScreen(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
                 )
+                IconButton(onClick = onAbout) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = stringResource(R.string.about_title),
+                    )
+                }
             }
 
             StatusCard(status)
@@ -655,6 +677,7 @@ private fun RunningPreview() {
             onStop = {},
             onNewPin = { "0000" },
             onGrantStorage = {},
+            onAbout = {},
         )
     }
 }

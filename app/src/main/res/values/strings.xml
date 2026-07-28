@@ -30,6 +30,15 @@
     <string name="files_settings_unavailable">This device has no All files access screen.</string>
     <string name="action_grant_storage">Grant file access</string>
 
+    <string name="about_title">About</string>
+    <string name="about_summary">Share your clipboard and files with any browser on the same Wi‑Fi.</string>
+    <string name="action_back">Back</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_developer">Developer</string>
+    <string name="about_developer_name">Anthony T.</string>
+    <string name="about_website">Website</string>
+    <string name="about_source">Source code</string>
+
     <string name="security_title">Security</string>
     <string name="use_tls">Encrypt traffic (HTTPS)</string>
     <string name="use_tls_detail">Stops others on the network reading the PIN or your files. Browsers warn once per device.</string>
