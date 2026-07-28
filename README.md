@@ -9,7 +9,7 @@ delete files on the device.
 ## Using it
 
 1. Open MagicPaste, choose what to share — **Clipboard**, **Files**, or both —
-   and tap **Start sharing**. The port defaults to `8123` and the PIN is a random
+   optionally switch on **Encrypt traffic (HTTPS)**, and tap **Start sharing**. The port defaults to `8123` and the PIN is a random
    4 digits on first launch; everything is editable while stopped and remembered
    between launches.
 2. The app lists every address the device can be reached at — usually one, Wi-Fi
@@ -48,7 +48,8 @@ an ongoing notification carrying a **Stop** action.
 
 ### From a terminal
 
-Pass the PIN as a header instead of logging in:
+Pass the PIN as a header instead of logging in (add `-k` when encryption is on,
+since the certificate is self-signed):
 
 ```sh
 curl -H 'X-MagicPaste-Pin: 4242' http://192.168.1.42:8123/raw
@@ -103,12 +104,48 @@ puts a full sweep on the order of half a day, against a server that is typically
 up for minutes. Comparison is constant-time, and the session cookie is a 24-byte
 `SecureRandom` token rather than the PIN itself.
 
-**What that does *not* protect against: someone on the network who can watch the
-traffic. This is plain HTTP, so the PIN, the session cookie and everything served
-travel in the clear. Treat it as a lock on the door of a network you already
-trust, not as protection on a hostile or public one.**
+**Over plain HTTP, none of that stops someone who can watch the traffic** — the
+PIN, the session cookie and everything served travel in the clear. That is what
+the encryption switch is for.
 
-*There are plans in the future to add encryption.*
+**Encryption is a switch, off by default.** Turn on *Encrypt traffic (HTTPS)* and
+the device generates a self-signed certificate covering its current addresses and
+serves TLS. Ktor's CIO engine has no TLS support at all — the jar contains no SSL
+classes — so an `SSLServerSocket` terminates it and relays bytes to the HTTP
+server, which binds to loopback where nothing else can reach it. Relaying bytes
+rather than parsing them means long-polling and large transfers behave exactly as
+they do over plain HTTP. The session cookie gains the `Secure` flag.
+
+**Typing the bare address still works.** Browsers default to `http://`, and a
+plaintext request arriving at a TLS socket is just a failed handshake —
+`ERR_EMPTY_RESPONSE`, which tells nobody anything. So the port is a plain socket
+that reads one byte first: `0x16` opens every TLS handshake, an ASCII method
+opens every HTTP request, and that is enough to tell them apart. Plaintext gets a
+`307` to the same path over HTTPS. Temporary rather than permanent on purpose — a
+cached `308` would strand browsers on HTTPS after encryption is switched back off.
+
+That defeats **passive** interception completely: someone on your Wi-Fi running a
+packet capture sees TLS records, not your PIN and not your files. It does not by
+itself defeat an **active** attacker who relays the connection and presents their
+own certificate — because the warning they trigger looks exactly like the one a
+self-signed certificate always produces.
+
+**The fingerprint is what closes that gap.** The app shows the certificate's
+SHA-256: the first and last four bytes large enough to compare at a glance, and
+the full digest in the form browsers print it. Open the padlock in the browser,
+check they match, and a relay becomes visible. A test asserts that the
+fingerprint the app displays is byte-for-byte the one a client actually receives,
+because a fingerprint that drifts from reality is worse than none.
+
+Two costs. Browsers warn the first time each device connects — once per browser,
+not once per visit, since the exception is remembered — and `curl` needs `-k`. To
+be rid of the warning entirely, copy the certificate off the device over USB
+rather than downloading it over the network, and install it in the client's trust
+store; anchoring trust through a path the network never touched is what makes a
+later warning mean something.
+
+The certificate is regenerated whenever the device's address set changes, so its
+SAN keeps matching after DHCP moves you.
 
 **Nothing can address a file outside the shared root.** Two independent defences,
 because path traversal is the failure mode this feature would have. `VirtualPath`
@@ -130,7 +167,7 @@ shared/   Pure-Kotlin, no Android APIs — the server, the clipboard and file
           commonMain as-is.
 app/      Everything Android: the system clipboard, files on shared storage, the
           foreground service that keeps the server alive, network address
-          discovery, and the Compose UI.
+          discovery, TLS termination, and the Compose UI.
 ```
 
 The seams between them are `ClipboardAccess` and `FileStore` (`shared`),

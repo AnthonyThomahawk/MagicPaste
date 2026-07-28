@@ -46,6 +46,12 @@ class MagicPasteServer(
     private val device: String = "",
     /** Null leaves the file manager unshared. */
     private val files: FileStore? = null,
+    /**
+     * Marks the session cookie `Secure`. Set when something in front is
+     * terminating TLS: the server itself only ever sees plain HTTP on loopback,
+     * so it cannot work this out for itself.
+     */
+    private val secureCookies: Boolean = false,
     val port: Int = DEFAULT_PORT,
     private val host: String = ALL_INTERFACES,
 ) {
@@ -58,7 +64,7 @@ class MagicPasteServer(
     suspend fun start() {
         check(engine == null) { "Server is already running on port $port" }
         val server = embeddedServer(CIO, port = port, host = host) {
-            magicPasteModule(clipboard, gate, device, files)
+            magicPasteModule(clipboard, gate, device, files, secureCookies)
         }
         engine = server
         try {
@@ -109,6 +115,7 @@ fun Application.magicPasteModule(
     gate: PinGate,
     device: String = "",
     files: FileStore? = null,
+    secureCookies: Boolean = false,
 ) {
     // Substituted once, not per request: none of this changes while the server
     // is up, and the cross-links depend on what is actually mounted — an offer
@@ -124,6 +131,10 @@ fun Application.magicPasteModule(
     // only files still means "open the address and you are there".
     val landingPage = clipboardPage.takeIf { clipboard != null } ?: filesPage.takeIf { files != null }
 
+    // Which cookie this server owns depends on whether it is behind TLS; see
+    // PinGate.SECURE_SESSION_COOKIE for why they must not share a name.
+    val sessionCookie = PinGate.sessionCookieName(secureCookies)
+
     routing {
         // The one unauthenticated read: it says whether a server is here, nothing
         // about what it holds, which is what makes it useful for "is it up?".
@@ -136,42 +147,42 @@ fun Application.magicPasteModule(
             }
             // The prompt stays anonymous: someone who cannot get past it learns
             // nothing about the device from us.
-            val page = if (gate.admits(call)) landingPage else LOGIN_HTML
+            val page = if (gate.admits(call, sessionCookie)) landingPage else LOGIN_HTML
             call.respondText(page, ContentType.Text.Html)
         }
 
-        post("/api/session") { call.openSession(gate) }
+        post("/api/session") { call.openSession(gate, sessionCookie, secureCookies) }
 
         if (clipboard != null) {
             get("/api/clipboard") {
-                call.guarded(gate) {
+                call.guarded(gate, sessionCookie) {
                     val since = call.request.queryParameters["since"]?.toLongOrNull()
                     call.respondSnapshot(clipboard.await(since))
                 }
             }
 
             // PUT and POST do the same thing here; both spellings are common in clients.
-            post("/api/clipboard") { call.guarded(gate) { call.writeFromJson(clipboard) } }
-            put("/api/clipboard") { call.guarded(gate) { call.writeFromJson(clipboard) } }
+            post("/api/clipboard") { call.guarded(gate, sessionCookie) { call.writeFromJson(clipboard) } }
+            put("/api/clipboard") { call.guarded(gate, sessionCookie) { call.writeFromJson(clipboard) } }
 
             get("/raw") {
-                call.guarded(gate) {
+                call.guarded(gate, sessionCookie) {
                     call.respondText(clipboard.snapshot.value.text, ContentType.Text.Plain)
                 }
             }
-            post("/raw") { call.guarded(gate) { call.writeFromPlainText(clipboard) } }
-            put("/raw") { call.guarded(gate) { call.writeFromPlainText(clipboard) } }
+            post("/raw") { call.guarded(gate, sessionCookie) { call.writeFromPlainText(clipboard) } }
+            put("/raw") { call.guarded(gate, sessionCookie) { call.writeFromPlainText(clipboard) } }
         }
 
         if (files != null) {
             get("/files") {
-                val page = if (gate.admits(call)) filesPage else LOGIN_HTML
+                val page = if (gate.admits(call, sessionCookie)) filesPage else LOGIN_HTML
                 call.respondText(page, ContentType.Text.Html)
             }
             // A refused file operation is an expected outcome, not a server
             // fault, so it becomes a status code here rather than a 500.
             fileRoutes(files) { block ->
-                guarded(gate) {
+                guarded(gate, sessionCookie) {
                     try {
                         block()
                     } catch (refusal: FileStoreException) {
@@ -190,8 +201,12 @@ fun Application.magicPasteModule(
  * endpoints, a reader can see at a glance which ones are guarded, and the one
  * that deliberately is not.
  */
-private suspend fun ApplicationCall.guarded(gate: PinGate, block: suspend () -> Unit) {
-    if (!gate.admits(this)) {
+private suspend fun ApplicationCall.guarded(
+    gate: PinGate,
+    sessionCookie: String,
+    block: suspend () -> Unit,
+) {
+    if (!gate.admits(this, sessionCookie)) {
         respondText("Wrong or missing PIN", status = HttpStatusCode.Unauthorized)
         return
     }
@@ -199,14 +214,18 @@ private suspend fun ApplicationCall.guarded(gate: PinGate, block: suspend () -> 
 }
 
 /** True when the call carries a live session cookie, or the PIN itself. */
-private suspend fun PinGate.admits(call: ApplicationCall): Boolean {
-    if (isValidSession(call.request.cookies[PinGate.SESSION_COOKIE])) return true
+private suspend fun PinGate.admits(call: ApplicationCall, sessionCookie: String): Boolean {
+    if (isValidSession(call.request.cookies[sessionCookie])) return true
     val offered = call.request.headers[PinGate.PIN_HEADER] ?: return false
     return verify(offered)
 }
 
 /** Exchanges a correct PIN for a session cookie. */
-private suspend fun ApplicationCall.openSession(gate: PinGate) {
+private suspend fun ApplicationCall.openSession(
+    gate: PinGate,
+    sessionCookie: String,
+    secureCookie: Boolean,
+) {
     val offered = runCatching {
         json.decodeFromString(SessionRequest.serializer(), receiveText()).pin
     }.getOrElse {
@@ -222,10 +241,11 @@ private suspend fun ApplicationCall.openSession(gate: PinGate) {
 
     response.cookies.append(
         Cookie(
-            name = PinGate.SESSION_COOKIE,
+            name = sessionCookie,
             value = token,
             path = "/",
             httpOnly = true,
+            secure = secureCookie,
             extensions = mapOf("SameSite" to "Strict"),
         )
     )

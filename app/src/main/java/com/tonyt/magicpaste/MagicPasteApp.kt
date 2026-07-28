@@ -31,7 +31,12 @@ class MagicPasteApp : Application() {
         super.onCreate()
         clipboard = AndroidClipboard(this)
         settings = Settings(this)
-        serverController = ServerController(clipboard, SecureTokenSource, deviceDescription()) {
+        serverController = ServerController(
+            clipboard = clipboard,
+            tokens = SecureTokenSource,
+            device = deviceDescription(),
+            certificateDirectory = filesDir,
+        ) {
             // Only offered once the user has granted storage access; until then
             // the server simply has no file manager.
             if (StorageAccess.isGranted(this)) AndroidFileStore(StorageAccess.root()) else null
@@ -75,6 +80,15 @@ class Settings(context: Context) {
         get() = preferences.getBoolean(KEY_SHARE_FILES, false)
         set(value) = preferences.edit { putBoolean(KEY_SHARE_FILES, value) }
 
+    /**
+     * Whether to serve HTTPS. Off by default: the certificate is self-signed, so
+     * turning it on means every visitor meets a browser warning the first time,
+     * and that cost should be chosen rather than inherited.
+     */
+    var useTls: Boolean
+        get() = preferences.getBoolean(KEY_USE_TLS, false)
+        set(value) = preferences.edit { putBoolean(KEY_USE_TLS, value) }
+
     /** A fresh PIN, for the regenerate button. */
     fun randomPin(): String = buildString {
         repeat(PIN_LENGTH) { append(SecureTokenSource.random.nextInt(10)) }
@@ -87,6 +101,7 @@ class Settings(context: Context) {
         private const val KEY_PIN = "pin"
         private const val KEY_SHARE_CLIPBOARD = "share_clipboard"
         private const val KEY_SHARE_FILES = "share_files"
+        private const val KEY_USE_TLS = "use_tls"
     }
 }
 

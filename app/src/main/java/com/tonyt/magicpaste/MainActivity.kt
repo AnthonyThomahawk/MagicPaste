@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -60,6 +62,7 @@ import com.tonyt.magicpaste.domain.ClipboardSnapshot
 import com.tonyt.magicpaste.files.StorageAccess
 import com.tonyt.magicpaste.server.MagicPasteService
 import com.tonyt.magicpaste.server.ServerStatus
+import com.tonyt.magicpaste.tls.Fingerprint
 import com.tonyt.magicpaste.ui.theme.MagicPasteTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -93,6 +96,7 @@ class MainActivity : ComponentActivity() {
                     initialPin = app.settings.pin,
                     initialShareClipboard = app.settings.shareClipboard,
                     initialShareFiles = app.settings.shareFiles,
+                    initialUseTls = app.settings.useTls,
                     storageGranted = granted,
                     onStart = ::startSharing,
                     onStop = { MagicPasteService.stop(this) },
@@ -135,7 +139,13 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) magicPaste.clipboard.refresh()
     }
 
-    private fun startSharing(port: Int, pin: String, shareClipboard: Boolean, shareFiles: Boolean) {
+    private fun startSharing(
+        port: Int,
+        pin: String,
+        shareClipboard: Boolean,
+        shareFiles: Boolean,
+        useTls: Boolean,
+    ) {
         // Saved before the service starts, because the service reads its
         // configuration back out of settings rather than off the intent.
         with(magicPaste.settings) {
@@ -143,6 +153,7 @@ class MainActivity : ComponentActivity() {
             this.pin = pin
             this.shareClipboard = shareClipboard
             this.shareFiles = shareFiles
+            this.useTls = useTls
         }
         MagicPasteService.start(this, port)
     }
@@ -156,8 +167,9 @@ fun MagicPasteScreen(
     initialPin: String,
     initialShareClipboard: Boolean,
     initialShareFiles: Boolean,
+    initialUseTls: Boolean,
     storageGranted: Boolean,
-    onStart: (port: Int, pin: String, shareClipboard: Boolean, shareFiles: Boolean) -> Unit,
+    onStart: (port: Int, pin: String, shareClipboard: Boolean, shareFiles: Boolean, useTls: Boolean) -> Unit,
     onStop: () -> Unit,
     onNewPin: () -> String,
     onGrantStorage: () -> Unit,
@@ -167,6 +179,7 @@ fun MagicPasteScreen(
     var pinText by rememberSaveable { mutableStateOf(initialPin) }
     var shareClipboard by rememberSaveable { mutableStateOf(initialShareClipboard) }
     var shareFiles by rememberSaveable { mutableStateOf(initialShareFiles) }
+    var useTls by rememberSaveable { mutableStateOf(initialUseTls) }
     val port = portText.toIntOrNull()
     val portIsValid = port != null && port in MIN_PORT..MAX_PORT
     val pinIsValid = pinText.length == Settings.PIN_LENGTH
@@ -180,7 +193,7 @@ fun MagicPasteScreen(
     // invisible — so either answer leads to the same next step.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { onStart(port ?: initialPort, pinText, shareClipboard, filesShared) }
+    ) { onStart(port ?: initialPort, pinText, shareClipboard, filesShared, useTls) }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
@@ -209,6 +222,13 @@ fun MagicPasteScreen(
                 onShareClipboard = { shareClipboard = it },
                 onShareFiles = { shareFiles = it },
                 onGrant = onGrantStorage,
+            )
+
+            SecurityCard(
+                useTls = useTls,
+                isStopped = isStopped,
+                fingerprint = (status as? ServerStatus.Running)?.fingerprint,
+                onUseTls = { useTls = it },
             )
 
             OutlinedTextField(
@@ -257,7 +277,7 @@ fun MagicPasteScreen(
                         if (context.needsNotificationPermission()) {
                             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            onStart(chosen, pinText, shareClipboard, filesShared)
+                            onStart(chosen, pinText, shareClipboard, filesShared, useTls)
                         }
                     },
                     enabled = portIsValid && pinIsValid && hasSomethingToShare,
@@ -424,6 +444,118 @@ private fun SharingCard(
     }
 }
 
+/**
+ * The encryption switch and, once running, the fingerprint to check against.
+ *
+ * The fingerprint is the whole point of showing anything here: a self-signed
+ * certificate encrypts the connection but proves nothing about who is on the
+ * other end, and comparing this against what the browser reports is what turns
+ * "encrypted" into "encrypted, to this device".
+ */
+@Composable
+private fun SecurityCard(
+    useTls: Boolean,
+    isStopped: Boolean,
+    fingerprint: Fingerprint?,
+    onUseTls: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.security_title),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+
+            ToggleRow(
+                label = stringResource(R.string.use_tls),
+                description = stringResource(R.string.use_tls_detail),
+                checked = useTls,
+                enabled = isStopped,
+                onCheckedChange = onUseTls,
+            )
+
+            if (fingerprint != null) {
+                FingerprintPanel(fingerprint)
+            } else if (useTls && isStopped) {
+                Text(
+                    text = stringResource(R.string.tls_fingerprint_when_running),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The fingerprint, in the two shapes that get used: the ends large enough to
+ * compare across a room, and the full digest for anyone actually reading it off
+ * a browser's certificate dialog.
+ */
+@Composable
+private fun FingerprintPanel(fingerprint: Fingerprint) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.fingerprint_label),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = fingerprint.head,
+                style = MaterialTheme.typography.headlineSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "…",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = fingerprint.tail,
+                style = MaterialTheme.typography.headlineSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Text(
+            text = stringResource(R.string.fingerprint_compare),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SelectionContainer {
+            Text(
+                text = fingerprint.grouped,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun ToggleRow(
     label: String,
@@ -517,8 +649,9 @@ private fun RunningPreview() {
             initialPin = "4183",
             initialShareClipboard = true,
             initialShareFiles = true,
+            initialUseTls = true,
             storageGranted = true,
-            onStart = { _, _, _, _ -> },
+            onStart = { _, _, _, _, _ -> },
             onStop = {},
             onNewPin = { "0000" },
             onGrantStorage = {},

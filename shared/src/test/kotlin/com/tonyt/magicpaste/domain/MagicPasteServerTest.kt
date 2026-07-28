@@ -242,6 +242,57 @@ class MagicPasteServerTest {
     }
 
     @Test
+    fun `the session cookie is marked Secure only when something terminates TLS`() = testApplication {
+        application { magicPasteModule(InMemoryClipboard(), gate(), secureCookies = true) }
+
+        val cookie = login().orEmpty()
+
+        assertTrue(cookie.contains("Secure", ignoreCase = true), "expected a Secure cookie, got: $cookie")
+        assertTrue(cookie.contains("HttpOnly", ignoreCase = true), "expected HttpOnly, got: $cookie")
+    }
+
+    /**
+     * Cookies are scoped to a host, not a port or a scheme. If both modes used one
+     * name, the Secure cookie written over HTTPS could never be replaced by a
+     * plain one over HTTP — browsers refuse that — and logging in over HTTP after
+     * ever using HTTPS would silently do nothing.
+     */
+    @Test
+    fun `the two modes use different cookie names so they cannot collide`() = testApplication {
+        application { magicPasteModule(InMemoryClipboard(), gate(), secureCookies = true) }
+
+        val overTls = login().orEmpty()
+
+        assertTrue(
+            overTls.startsWith("${PinGate.SECURE_SESSION_COOKIE}="),
+            "expected the TLS cookie name, got: $overTls",
+        )
+        assertNotEquals(PinGate.SESSION_COOKIE, PinGate.SECURE_SESSION_COOKIE)
+    }
+
+    @Test
+    fun `a session from the other mode does not unlock this one`() = testApplication {
+        application { magicPasteModule(InMemoryClipboard("private"), gate()) }
+
+        // A cookie of the TLS name, presented to a plain-HTTP server. Even with a
+        // valid-looking token it is the wrong door, and must not open.
+        val response = client.get("/raw") {
+            header(HttpHeaders.Cookie, "${PinGate.SECURE_SESSION_COOKIE}=test-token-0")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `the session cookie is not Secure over plain http, or browsers would drop it`() = testApplication {
+        application { magicPasteModule(InMemoryClipboard(), gate()) }
+
+        val cookie = login().orEmpty()
+
+        assertTrue(!cookie.contains("Secure", ignoreCase = true), "unexpected Secure flag, got: $cookie")
+    }
+
+    @Test
     fun `session tokens are not reused between logins`() = testApplication {
         val tokens = ArrayDeque(listOf("token-one", "token-two"))
         application { magicPasteModule(InMemoryClipboard(), PinGate(TEST_PIN) { tokens.removeFirst() }) }

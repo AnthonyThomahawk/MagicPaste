@@ -84,6 +84,22 @@ class PinGate(
     companion object {
         const val SESSION_COOKIE = "magicpaste_session"
 
+        /**
+         * The cookie used when TLS is on, deliberately a different name.
+         *
+         * Cookies are scoped to a host, not to a port or a scheme, so both modes
+         * would otherwise write the same one. That breaks badly in one direction:
+         * a cookie set `Secure` over HTTPS cannot be overwritten by a plain one
+         * over HTTP — browsers refuse it outright — so after using HTTPS once,
+         * logging in over HTTP would appear to succeed and change nothing.
+         * Separate names keep the two from ever meeting.
+         */
+        const val SECURE_SESSION_COOKIE = "magicpaste_session_tls"
+
+        /** The cookie name for a server that is, or is not, behind TLS. */
+        fun sessionCookieName(secure: Boolean): String =
+            if (secure) SECURE_SESSION_COOKIE else SESSION_COOKIE
+
         /** Header carrying the PIN itself, for `curl` and other non-browser clients. */
         const val PIN_HEADER = "X-MagicPaste-Pin"
 

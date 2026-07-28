@@ -30,6 +30,13 @@
     <string name="files_settings_unavailable">This device has no All files access screen.</string>
     <string name="action_grant_storage">Grant file access</string>
 
+    <string name="security_title">Security</string>
+    <string name="use_tls">Encrypt traffic (HTTPS)</string>
+    <string name="use_tls_detail">Stops others on the network reading the PIN or your files. Browsers warn once per device.</string>
+    <string name="tls_fingerprint_when_running">The fingerprint to check appears here once sharing starts.</string>
+    <string name="fingerprint_label">Certificate fingerprint (SHA-256)</string>
+    <string name="fingerprint_compare">Open the padlock in the browser and check these first and last four bytes match.</string>
+
     <string name="shared_clipboard">Clipboard being shared</string>
     <string name="clipboard_empty">Nothing copied yet.</string>
 

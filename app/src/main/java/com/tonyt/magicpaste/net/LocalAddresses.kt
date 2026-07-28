@@ -37,8 +37,11 @@ object LocalAddresses {
             .toList()
     }.getOrDefault(emptyList())
 
-    /** `http://…:port` for each address in [candidates]. */
-    fun urls(port: Int): List<String> = candidates().map { "http://$it:$port" }
+    /** `http://…:port` — or `https://` when [secure] — for each address in [candidates]. */
+    fun urls(port: Int, secure: Boolean = false): List<String> {
+        val scheme = if (secure) "https" else "http"
+        return candidates().map { "$scheme://$it:$port" }
+    }
 
     /** A prefix this long leaves no room for anyone else on the network. */
     private const val HOST_ONLY_PREFIX = 32
