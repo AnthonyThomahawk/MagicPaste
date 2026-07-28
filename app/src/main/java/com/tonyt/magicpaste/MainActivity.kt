@@ -197,11 +197,6 @@ fun MagicPasteScreen(
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    text = stringResource(R.string.tagline),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
 
             StatusCard(status)
@@ -240,13 +235,9 @@ fun MagicPasteScreen(
                 enabled = isStopped,
                 isError = pinText.isNotEmpty() && !pinIsValid,
                 supportingText = {
-                    Text(
-                        if (pinIsValid) {
-                            stringResource(R.string.pin_hint)
-                        } else {
-                            stringResource(R.string.pin_error, Settings.PIN_LENGTH)
-                        }
-                    )
+                    if (!pinIsValid) {
+                        stringResource(R.string.pin_error, Settings.PIN_LENGTH)
+                    }
                 },
                 trailingIcon = {
                     if (isStopped) {
@@ -289,12 +280,6 @@ fun MagicPasteScreen(
 
             if (shareClipboard) {
                 ClipboardCard(clipboard)
-
-                Text(
-                    text = stringResource(R.string.focus_caveat),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

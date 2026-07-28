@@ -102,9 +102,22 @@ class MagicPasteService : Service() {
             is ServerStatus.Failed -> status.reason
             else -> getString(R.string.notification_starting)
         }
+
+        val settings = magicPaste.settings
+
+        var notificationString = ""
+
+        if (settings.shareClipboard && settings.shareFiles) {
+            notificationString = getString(R.string.notification_title_clipboard_and_files)
+        } else if (settings.shareClipboard) {
+            notificationString = getString(R.string.notification_title_clipboard)
+        } else if (settings.shareFiles) {
+            notificationString = getString(R.string.notification_title_files)
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.notification_title))
+            .setContentTitle(notificationString)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(
