@@ -19,6 +19,16 @@ delete files on the device.
 4. For files, tap **Grant file access** in the app once, then follow *Browse files
    on this device* from the web page.
 
+### From a terminal instead of a browser
+
+Pass the PIN as a header instead of logging in (add `-k` when encryption is on,
+since the certificate is self-signed):
+
+```sh
+curl -H 'X-MagicPaste-Pin: 4242' http://192.168.1.42:8123/raw
+curl -H 'X-MagicPaste-Pin: 4242' -d 'hello' http://192.168.1.42:8123/raw
+```
+
 ## What gets shared
 
 Two switches in the app decide what the server offers, and only routes for what
@@ -45,47 +55,6 @@ Access needs the **All files access** permission.
 
 Sharing survives leaving the app: a foreground service keeps the server up, with
 an ongoing notification carrying a **Stop** action.
-
-### From a terminal
-
-Pass the PIN as a header instead of logging in (add `-k` when encryption is on,
-since the certificate is self-signed):
-
-```sh
-curl -H 'X-MagicPaste-Pin: 4242' http://192.168.1.42:8123/raw
-curl -H 'X-MagicPaste-Pin: 4242' -d 'hello' http://192.168.1.42:8123/raw
-```
-
-## HTTP API
-
-Every endpoint except `/health` needs either the session cookie the PIN prompt
-sets, or an `X-MagicPaste-Pin` header. Without one, they answer `401`.
-
-| Method     | Path                    | Description                                                |
-| ---------- | ----------------------- | ---------------------------------------------------------- |
-| `GET`      | `/`                     | The web UI, or the PIN prompt if you have no session        |
-| `POST`     | `/api/session`          | Body `{"pin": "..."}` — sets the session cookie             |
-| `GET`      | `/api/clipboard`        | `{"text": "...", "revision": N}`                            |
-| `GET`      | `/api/clipboard?since=N`| Long-polls: returns once the revision passes `N`, or after 25s |
-| `POST/PUT` | `/api/clipboard`        | Body `{"text": "..."}` — replaces the device clipboard      |
-| `GET`      | `/raw`                  | Clipboard as `text/plain`                                   |
-| `POST/PUT` | `/raw`                  | Request body becomes the clipboard                          |
-| `GET`      | `/health`               | `ok` — the one unauthenticated route, so you can probe it   |
-| `GET`      | `/files`                | The file manager page                                       |
-| `GET`      | `/api/files?path=`      | Directory listing as JSON                                   |
-| `GET`      | `/api/files/download?path=` | Streams one file                                        |
-| `POST`     | `/api/files/upload?path=` | Multipart upload into that folder                         |
-| `POST`     | `/api/files/folder`     | `{"path": "...", "name": "..."}` — creates a folder         |
-| `POST`     | `/api/files/rename`     | `{"path": "...", "name": "..."}`                            |
-| `POST`     | `/api/files/move`       | `{"path": "...", "destination": "..."}`                     |
-| `POST`     | `/api/files/delete`     | `{"path": "..."}` — recursive for folders                   |
-
-`revision` is a counter that increases whenever the clipboard text changes. It is
-what makes live updates work without WebSockets: the web page asks for the
-clipboard "newer than revision N" and the server holds the request open until
-there is one.
-
-Pastes are capped at 1,000,000 characters.
 
 ## Important notes
 
@@ -173,6 +142,38 @@ app/      Everything Android: the system clipboard, files on shared storage, the
 The seams between them are `ClipboardAccess` and `FileStore` (`shared`),
 implemented by `AndroidClipboard` and `AndroidFileStore` (`app`). Porting to
 another platform means writing one more implementation of each.
+
+
+## HTTP API
+
+Every endpoint except `/health` needs either the session cookie the PIN prompt
+sets, or an `X-MagicPaste-Pin` header. Without one, they answer `401`.
+
+| Method     | Path                    | Description                                                |
+| ---------- | ----------------------- | ---------------------------------------------------------- |
+| `GET`      | `/`                     | The web UI, or the PIN prompt if you have no session        |
+| `POST`     | `/api/session`          | Body `{"pin": "..."}` — sets the session cookie             |
+| `GET`      | `/api/clipboard`        | `{"text": "...", "revision": N}`                            |
+| `GET`      | `/api/clipboard?since=N`| Long-polls: returns once the revision passes `N`, or after 25s |
+| `POST/PUT` | `/api/clipboard`        | Body `{"text": "..."}` — replaces the device clipboard      |
+| `GET`      | `/raw`                  | Clipboard as `text/plain`                                   |
+| `POST/PUT` | `/raw`                  | Request body becomes the clipboard                          |
+| `GET`      | `/health`               | `ok` — the one unauthenticated route, so you can probe it   |
+| `GET`      | `/files`                | The file manager page                                       |
+| `GET`      | `/api/files?path=`      | Directory listing as JSON                                   |
+| `GET`      | `/api/files/download?path=` | Streams one file                                        |
+| `POST`     | `/api/files/upload?path=` | Multipart upload into that folder                         |
+| `POST`     | `/api/files/folder`     | `{"path": "...", "name": "..."}` — creates a folder         |
+| `POST`     | `/api/files/rename`     | `{"path": "...", "name": "..."}`                            |
+| `POST`     | `/api/files/move`       | `{"path": "...", "destination": "..."}`                     |
+| `POST`     | `/api/files/delete`     | `{"path": "..."}` — recursive for folders                   |
+
+`revision` is a counter that increases whenever the clipboard text changes. It is
+what makes live updates work without WebSockets: the web page asks for the
+clipboard "newer than revision N" and the server holds the request open until
+there is one.
+
+Pastes are capped at 1,000,000 characters.
 
 ## Building
 
