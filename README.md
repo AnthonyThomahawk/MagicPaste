@@ -41,13 +41,7 @@ Two things it cannot reach, because Android does not allow it: other apps'
 private directories under `/Android/data` and `/Android/obb`, and the system
 partitions, which need root.
 
-Access needs the **All files access** permission. From Android 11 that is not a
-runtime dialog — the app sends you to a system settings screen, and Google Play
-restricts which apps may request it at all, which matters if you ever publish
-this rather than sideloading it. On Android 10 and below the ordinary storage
-permission covers it. The file manager only appears once the permission is
-granted *and* sharing is restarted, since whether to mount it is decided when the
-server starts.
+Access needs the **All files access** permission.
 
 Sharing survives leaving the app: a foreground service keeps the server up, with
 an ongoing notification carrying a **Stop** action.
@@ -92,7 +86,7 @@ there is one.
 
 Pastes are capped at 1,000,000 characters.
 
-## Two things to know
+## Important notes
 
 **Reading the clipboard needs the app on screen.** Since Android 10 the system
 only hands the clipboard to an app that holds window focus. MagicPaste caches the
@@ -109,16 +103,12 @@ puts a full sweep on the order of half a day, against a server that is typically
 up for minutes. Comparison is constant-time, and the session cookie is a 24-byte
 `SecureRandom` token rather than the PIN itself.
 
-What that does *not* protect against: someone on the network who can watch the
+**What that does *not* protect against: someone on the network who can watch the
 traffic. This is plain HTTP, so the PIN, the session cookie and everything served
 travel in the clear. Treat it as a lock on the door of a network you already
-trust, not as protection on a hostile or public one.
+trust, not as protection on a hostile or public one.**
 
-**With the file manager on, that PIN guards your files, not a text snippet.**
-Four digits and an unencrypted connection are a reasonable trade for a clipboard;
-they are a thin defence for every photo and document on the phone, and delete is
-recursive and irreversible. Start sharing only on networks you trust, and stop it
-when you are done — stopping also invalidates every session.
+*There are plans in the future to add encryption.*
 
 **Nothing can address a file outside the shared root.** Two independent defences,
 because path traversal is the failure mode this feature would have. `VirtualPath`
@@ -128,8 +118,8 @@ then resolves the result against the root and compares *canonical* paths, which
 catches a symlink pointing outward — something no amount of string checking would
 see. Both are covered by tests.
 
-Stopping and restarting sharing invalidates every session, so changing the PIN
-locks out browsers that were already connected.
+**Stopping and restarting sharing invalidates every session, so changing the PIN
+locks out browsers that were already connected.**
 
 ## Layout
 
