@@ -18,8 +18,8 @@ delete files on the device.
 | 📋 **Clipboard** | Live both ways. Copy on the phone and it appears in the browser within a second; send text back and it lands on the clipboard immediately. |
 | 📁 **Files** | Browse shared storage, download, upload by drag and drop, create folders, rename, move, delete. |
 | 🔒 **PIN** | Four digits, guarded by a throttle that makes guessing impractical. Nothing is served without it. |
-| 🔮 **HTTPS** | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
-| 📴 **No internet** | Nothing leaves your network. No account, no cloud, no external requests — the page is entirely self-contained. |
+| 🔒 **HTTPS** | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
+| 📵 **No internet** | Nothing leaves your network. No account, no cloud, no external requests — the page is entirely self-contained. |
 
 ## Using it
 
