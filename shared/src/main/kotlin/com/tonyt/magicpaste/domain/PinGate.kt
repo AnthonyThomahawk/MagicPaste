@@ -19,10 +19,11 @@ fun interface TokenSource {
  * Guards the server with a PIN that the device owner reads off the app.
  *
  * A short numeric PIN is only worth anything if guesses are expensive, so every
- * failed attempt is serialized behind [lock] and answered after a growing delay.
- * That makes the search space unreachable in practice — a few attempts a second
- * at first, one per five seconds shortly after — without needing a clock, which
- * this module has no way to read.
+ * failed attempt is serialized behind [lock] and answered after a delay that
+ * doubles with each consecutive failure, without bound. A mistyped PIN or two
+ * costs under a second; a sweep of the space is over an hour in by the twenty-
+ * fifth guess and only gets worse. No clock is needed, which is convenient,
+ * because this module has no way to read one.
  *
  * The cost of serializing is that a determined attacker can hold up other
  * *logins* while they hammer. Already-authenticated browsers carry a session
@@ -77,8 +78,10 @@ class PinGate(
     }
 
     private fun penaltyMillis(failures: Int): Long {
-        val doublings = (failures - 1).coerceAtMost(MAX_DOUBLINGS)
-        return (BASE_PENALTY_MILLIS shl doublings).coerceAtMost(MAX_PENALTY_MILLIS)
+        val doublings = failures - 1
+        // Not a policy cap — shifting further would overflow the Long.
+        if (doublings > MAX_DOUBLINGS_BEFORE_OVERFLOW) return Long.MAX_VALUE
+        return BASE_PENALTY_MILLIS shl doublings
     }
 
     companion object {
@@ -104,7 +107,8 @@ class PinGate(
         const val PIN_HEADER = "X-MagicPaste-Pin"
 
         private const val BASE_PENALTY_MILLIS = 250L
-        private const val MAX_PENALTY_MILLIS = 5_000L
-        private const val MAX_DOUBLINGS = 5
+
+        /** 250ms is just under 2^8; 54 more doublings is the last that fits in a Long. */
+        private const val MAX_DOUBLINGS_BEFORE_OVERFLOW = 54
     }
 }

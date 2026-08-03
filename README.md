@@ -86,11 +86,13 @@ immediately, whether or not the app is on screen.
 
 **The PIN is short, so guesses are made expensive.** Four digits is only 10,000
 combinations, which a script would exhaust in seconds against an unprotected
-endpoint. `PinGate` answers every wrong guess after a delay that doubles up to
-five seconds, and serializes attempts so they cannot be run in parallel — which
-puts a full sweep on the order of half a day, against a server that is typically
-up for minutes. Comparison is constant-time, and the session cookie is a 24-byte
-`SecureRandom` token rather than the PIN itself.
+endpoint. `PinGate` answers every wrong guess after a delay that doubles with
+each consecutive failure, without bound, and serializes attempts so they cannot
+be run in parallel. A mistyped PIN or two costs under a second; by the
+twenty-fifth wrong guess the wait is over an hour, and a full sweep is out of
+the question. A correct entry resets the delay. Comparison is constant-time,
+and the session cookie is a 24-byte `SecureRandom` token rather than the PIN
+itself.
 
 **Over plain HTTP, none of that stops someone who can watch the traffic** — the
 PIN, the session cookie and everything served travel in the clear. That is what
