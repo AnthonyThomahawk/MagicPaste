@@ -13,13 +13,13 @@ opens `http://magicpaste.local:8123` — or `http://<device-ip>:8123` — in a
 browser and can read what the phone copied, push text back onto its clipboard,
 and browse, download, upload, rename and delete files on the device.
 
-|  | |
-| --- | --- |
-| 📋 **Clipboard** | Live both ways. Copy on the phone and it appears in the browser within a second; send text back and it lands on the clipboard immediately. |
-| 📁 **Files** | Browse shared storage, download, upload by drag and drop, create folders, rename, move, delete. |
-| 🏷️ **Name** | Reachable as `magicpaste.local` — or any `.local` name you pick — via mDNS, so nobody has to read an IP address off a phone screen. |
-| 🔒 **PIN** | Four digits, guarded by a throttle that makes guessing impractical. Nothing is served without it. |
-| 🔒 **HTTPS** | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
+|                    | |
+|--------------------| --- |
+| 📋 **Clipboard**   | Live both ways. Copy on the phone and it appears in the browser within a second; send text back and it lands on the clipboard immediately. |
+| 📁 **Files**       | Browse shared storage, download, upload by drag and drop, create folders, rename, move, delete. |
+| 🏷️ **mDNS**        | Reachable as `magicpaste.local` — or any `.local` name you pick — via mDNS, so nobody has to read an IP address off a phone screen. |
+| 🔒 **PIN**         | Four digits, guarded by a throttle that makes guessing impractical. Nothing is served without it. |
+| 🔒 **HTTPS**       | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
 | 📵 **No internet** | Nothing leaves your network. No account, no cloud, no external requests — the page is entirely self-contained. |
 
 ## Using it
