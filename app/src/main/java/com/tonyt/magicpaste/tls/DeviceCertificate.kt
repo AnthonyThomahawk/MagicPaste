@@ -27,6 +27,8 @@ class DeviceCertificate private constructor(
     private val keyStore: KeyStore,
     /** The addresses baked into the certificate, so we can tell when it is stale. */
     val addresses: List<String>,
+    /** The DNS names baked in — the mDNS hostname, when one is advertised. */
+    val hosts: List<String>,
     val fingerprint: Fingerprint,
 ) {
 
@@ -56,15 +58,25 @@ class DeviceCertificate private constructor(
          * trouble to install the certificate — so the certificate follows the
          * addresses rather than the other way round.
          */
-        fun loadOrCreate(directory: File, addresses: List<String>): DeviceCertificate {
+        fun loadOrCreate(
+            directory: File,
+            addresses: List<String>,
+            hosts: List<String> = emptyList(),
+        ): DeviceCertificate {
             val file = File(directory, FILE_NAME)
-            val wanted = addresses.sorted()
+            val wantedAddresses = addresses.sorted()
+            val wantedHosts = hosts.sorted()
 
             if (file.exists()) {
                 val existing = runCatching { read(file) }.getOrNull()
-                if (existing != null && existing.addresses == wanted) return existing
+                if (existing != null &&
+                    existing.addresses == wantedAddresses &&
+                    existing.hosts == wantedHosts
+                ) {
+                    return existing
+                }
             }
-            return create(file, wanted)
+            return create(file, wantedAddresses, wantedHosts)
         }
 
         private fun read(file: File): DeviceCertificate {
@@ -74,12 +86,13 @@ class DeviceCertificate private constructor(
             val certificate = store.getCertificate(ALIAS) as X509Certificate
             return DeviceCertificate(
                 keyStore = store,
-                addresses = certificate.addressesInSan(),
+                addresses = certificate.sanEntries(IP_ADDRESS_SAN_TYPE),
+                hosts = certificate.sanEntries(DNS_NAME_SAN_TYPE) - LOCALHOST,
                 fingerprint = Fingerprint.of(certificate),
             )
         }
 
-        private fun create(file: File, addresses: List<String>): DeviceCertificate {
+        private fun create(file: File, addresses: List<String>, hosts: List<String>): DeviceCertificate {
             val store = buildKeyStore {
                 certificate(ALIAS) {
                     hash = HashAlgorithm.SHA256
@@ -88,7 +101,7 @@ class DeviceCertificate private constructor(
                     password = PASSWORD
                     daysValid = VALID_DAYS
                     subject = X500Principal("CN=MagicPaste, O=MagicPaste")
-                    domains = listOf("localhost")
+                    domains = listOf(LOCALHOST) + hosts
                     ipAddresses = addresses.mapNotNull { address ->
                         runCatching { InetAddress.getByName(address) }.getOrNull()
                     }
@@ -97,18 +110,20 @@ class DeviceCertificate private constructor(
             file.parentFile?.mkdirs()
             store.saveToFile(file, PASSWORD)
             val certificate = store.getCertificate(ALIAS) as X509Certificate
-            return DeviceCertificate(store, addresses, Fingerprint.of(certificate))
+            return DeviceCertificate(store, addresses, hosts, Fingerprint.of(certificate))
         }
 
-        /** The SAN entries of type 7 — the IP addresses. */
-        private fun X509Certificate.addressesInSan(): List<String> =
+        /** The SAN entries of the given type, sorted for comparison. */
+        private fun X509Certificate.sanEntries(type: Int): List<String> =
             runCatching {
                 subjectAlternativeNames.orEmpty()
-                    .filter { it.size >= 2 && it[0] == IP_ADDRESS_SAN_TYPE }
+                    .filter { it.size >= 2 && it[0] == type }
                     .mapNotNull { it[1] as? String }
                     .sorted()
             }.getOrDefault(emptyList())
 
+        private const val LOCALHOST = "localhost"
+        private const val DNS_NAME_SAN_TYPE = 2
         private const val IP_ADDRESS_SAN_TYPE = 7
     }
 }

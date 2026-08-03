@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                     status = status,
                     clipboard = clipboard,
                     initialPort = app.settings.port,
+                    initialMdnsHost = app.settings.mdnsHost,
                     initialPin = app.settings.pin,
                     initialShareClipboard = app.settings.shareClipboard,
                     initialShareFiles = app.settings.shareFiles,
@@ -155,6 +156,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startSharing(
         port: Int,
+        mdnsHost: String,
         pin: String,
         shareClipboard: Boolean,
         shareFiles: Boolean,
@@ -164,6 +166,7 @@ class MainActivity : ComponentActivity() {
         // configuration back out of settings rather than off the intent.
         with(magicPaste.settings) {
             this.port = port
+            this.mdnsHost = mdnsHost
             this.pin = pin
             this.shareClipboard = shareClipboard
             this.shareFiles = shareFiles
@@ -178,12 +181,13 @@ fun MagicPasteScreen(
     status: ServerStatus,
     clipboard: ClipboardSnapshot,
     initialPort: Int,
+    initialMdnsHost: String,
     initialPin: String,
     initialShareClipboard: Boolean,
     initialShareFiles: Boolean,
     initialUseTls: Boolean,
     storageGranted: Boolean,
-    onStart: (port: Int, pin: String, shareClipboard: Boolean, shareFiles: Boolean, useTls: Boolean) -> Unit,
+    onStart: (port: Int, mdnsHost: String, pin: String, shareClipboard: Boolean, shareFiles: Boolean, useTls: Boolean) -> Unit,
     onStop: () -> Unit,
     onNewPin: () -> String,
     onGrantStorage: () -> Unit,
@@ -191,12 +195,14 @@ fun MagicPasteScreen(
 ) {
     val context = LocalContext.current
     var portText by rememberSaveable { mutableStateOf(initialPort.toString()) }
+    var mdnsHostText by rememberSaveable { mutableStateOf(initialMdnsHost) }
     var pinText by rememberSaveable { mutableStateOf(initialPin) }
     var shareClipboard by rememberSaveable { mutableStateOf(initialShareClipboard) }
     var shareFiles by rememberSaveable { mutableStateOf(initialShareFiles) }
     var useTls by rememberSaveable { mutableStateOf(initialUseTls) }
     val port = portText.toIntOrNull()
     val portIsValid = port != null && port in MIN_PORT..MAX_PORT
+    val mdnsHostIsValid = Settings.isValidMdnsHost(mdnsHostText)
     val pinIsValid = pinText.length == Settings.PIN_LENGTH
     val isStopped = status is ServerStatus.Stopped || status is ServerStatus.Failed
     // Files can only be shared once Android has granted access, so the effective
@@ -208,7 +214,7 @@ fun MagicPasteScreen(
     // invisible — so either answer leads to the same next step.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { onStart(port ?: initialPort, pinText, shareClipboard, filesShared, useTls) }
+    ) { onStart(port ?: initialPort, mdnsHostText, pinText, shareClipboard, filesShared, useTls) }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
@@ -263,9 +269,35 @@ fun MagicPasteScreen(
                 supportingText = {
                     if (portText.isNotEmpty() && !portIsValid) {
                         Text(stringResource(R.string.port_error, MIN_PORT, MAX_PORT))
+                    } else if (port != null && port < FIRST_UNPRIVILEGED_PORT) {
+                        // Not an error — some devices do allow it — but the
+                        // usual outcome is worth knowing before tapping Start.
+                        Text(stringResource(R.string.port_privileged_hint))
                     }
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = mdnsHostText,
+                onValueChange = { typed ->
+                    mdnsHostText = typed.lowercase()
+                        .filter { it.isLetterOrDigit() || it == '-' || it == '.' }
+                        .take(MAX_MDNS_HOST_LENGTH)
+                },
+                label = { Text(stringResource(R.string.mdns_host_label)) },
+                singleLine = true,
+                enabled = isStopped,
+                isError = !mdnsHostIsValid,
+                supportingText = {
+                    if (!mdnsHostIsValid) {
+                        Text(stringResource(R.string.mdns_host_error))
+                    } else {
+                        Text(stringResource(R.string.mdns_host_detail, mdnsHostText))
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -299,10 +331,10 @@ fun MagicPasteScreen(
                         if (context.needsNotificationPermission()) {
                             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            onStart(chosen, pinText, shareClipboard, filesShared, useTls)
+                            onStart(chosen, mdnsHostText, pinText, shareClipboard, filesShared, useTls)
                         }
                     },
-                    enabled = portIsValid && pinIsValid && hasSomethingToShare,
+                    enabled = portIsValid && mdnsHostIsValid && pinIsValid && hasSomethingToShare,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -657,8 +689,14 @@ private fun Context.shareText(text: String) {
     startActivity(Intent.createChooser(intent, null))
 }
 
-private const val MIN_PORT = 1024
+private const val MIN_PORT = 1
 private const val MAX_PORT = 65535
+
+/** A 63-character label plus `.local`. */
+private const val MAX_MDNS_HOST_LENGTH = 69
+
+/** Below this Android usually refuses the bind; allowed, but flagged. */
+private const val FIRST_UNPRIVILEGED_PORT = 1024
 
 @Preview(showBackground = true)
 @Composable
@@ -668,12 +706,13 @@ private fun RunningPreview() {
             status = ServerStatus.Running(8123, listOf("http://192.168.1.42:8123")),
             clipboard = ClipboardSnapshot("the quick brown fox", 3),
             initialPort = 8123,
+            initialMdnsHost = Settings.DEFAULT_MDNS_HOST,
             initialPin = "4183",
             initialShareClipboard = true,
             initialShareFiles = true,
             initialUseTls = true,
             storageGranted = true,
-            onStart = { _, _, _, _, _ -> },
+            onStart = { _, _, _, _, _, _ -> },
             onStop = {},
             onNewPin = { "0000" },
             onGrantStorage = {},

@@ -72,6 +72,7 @@ class MagicPasteService : Service() {
                     shareClipboard = settings.shareClipboard,
                     shareFiles = settings.shareFiles,
                     useTls = settings.useTls,
+                    mdnsHost = settings.mdnsHost,
                 )
             }
         }

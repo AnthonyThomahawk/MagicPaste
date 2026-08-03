@@ -6,6 +6,7 @@ import com.tonyt.magicpaste.domain.MagicPasteServer
 import com.tonyt.magicpaste.domain.PinGate
 import com.tonyt.magicpaste.domain.TokenSource
 import com.tonyt.magicpaste.net.LocalAddresses
+import com.tonyt.magicpaste.net.MdnsResponder
 import com.tonyt.magicpaste.tls.DeviceCertificate
 import com.tonyt.magicpaste.tls.Fingerprint
 import com.tonyt.magicpaste.tls.TlsProxy
@@ -59,6 +60,8 @@ class ServerController(
      * Null means the file manager stays off.
      */
     private val files: () -> FileStore?,
+    /** Builds the mDNS responder for a hostname; a factory because it needs a Context. */
+    private val mdns: (hostname: String) -> MdnsResponder,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -69,6 +72,7 @@ class ServerController(
 
     private var server: MagicPasteServer? = null
     private var proxy: TlsProxy? = null
+    private var responder: MdnsResponder? = null
 
     /** The port visitors connect to, which is the proxy's when TLS is on. */
     private var listeningPort: Int? = null
@@ -88,11 +92,14 @@ class ServerController(
         shareClipboard: Boolean,
         shareFiles: Boolean,
         useTls: Boolean,
+        mdnsHost: String? = null,
     ) {
         scope.launch {
             lock.withLock {
                 if (server != null) {
-                    if (listeningPort == port && encrypted == useTls) return@withLock
+                    if (listeningPort == port && encrypted == useTls && responder?.hostname == mdnsHost) {
+                        return@withLock
+                    }
                     shutdown()
                 }
                 state.value = ServerStatus.Starting
@@ -113,13 +120,14 @@ class ServerController(
 
                 try {
                     starting.start()
-                    val certificate = if (useTls) startProxy(port, internalPort) else null
+                    val certificate = if (useTls) startProxy(port, internalPort, mdnsHost) else null
                     server = starting
                     listeningPort = port
                     encrypted = useTls
+                    startResponder(mdnsHost)
                     state.value = ServerStatus.Running(
                         port = port,
-                        urls = LocalAddresses.urls(port, useTls),
+                        urls = advertisedUrls(port, useTls),
                         fingerprint = certificate?.fingerprint,
                     )
                 } catch (failure: Throwable) {
@@ -144,15 +152,38 @@ class ServerController(
     /** Re-reads the network interfaces, e.g. after the device changes Wi-Fi. */
     fun refreshAddresses() {
         val running = state.value as? ServerStatus.Running ?: return
-        state.value = running.copy(urls = LocalAddresses.urls(running.port, encrypted))
+        state.value = running.copy(urls = advertisedUrls(running.port, encrypted))
+    }
+
+    /** The `.local` URL first when mDNS is on — it survives DHCP handing out a new IP. */
+    private fun advertisedUrls(port: Int, secure: Boolean): List<String> {
+        val scheme = if (secure) "https" else "http"
+        val suffix = LocalAddresses.portSuffix(port, secure)
+        val named = responder?.let { listOf("$scheme://${it.hostname}$suffix") }.orEmpty()
+        return named + LocalAddresses.urls(port, secure)
+    }
+
+    /**
+     * Advertising the name is best-effort: a network that blocks multicast takes
+     * out the friendly URL, not the whole server, so failures are swallowed and
+     * the plain addresses still get shown.
+     */
+    private fun startResponder(mdnsHost: String?) {
+        responder = mdnsHost
+            ?.let { mdns(it) }
+            ?.takeIf { runCatching { it.start() }.isSuccess }
     }
 
     /**
      * Generates or reloads the certificate for the current addresses, then puts
      * the proxy in front of the loopback server.
      */
-    private fun startProxy(listenOn: Int, forwardTo: Int): DeviceCertificate {
-        val certificate = DeviceCertificate.loadOrCreate(certificateDirectory, LocalAddresses.candidates())
+    private fun startProxy(listenOn: Int, forwardTo: Int, mdnsHost: String?): DeviceCertificate {
+        val certificate = DeviceCertificate.loadOrCreate(
+            certificateDirectory,
+            LocalAddresses.candidates(),
+            hosts = listOfNotNull(mdnsHost),
+        )
         val started = TlsProxy(certificate, listenPort = listenOn, forwardToPort = forwardTo)
         started.start()
         proxy = started
@@ -160,6 +191,8 @@ class ServerController(
     }
 
     private suspend fun shutdown() {
+        responder?.let { runCatching { it.stop() } }
+        responder = null
         proxy?.let { runCatching { it.stop() } }
         proxy = null
         server?.let { runCatching { it.stop() } }
@@ -169,6 +202,12 @@ class ServerController(
     }
 
     private fun Throwable.describe(port: Int): String = when {
+        // Whether apps may open low ports varies by device — recent Android
+        // allows it, others reserve everything below 1024 — and a refusal
+        // surfaces as either exception depending on the API level.
+        (this is BindException || this is SecurityException) && port < FIRST_UNPRIVILEGED_PORT ->
+            "This device does not let apps open port $port. Pick 1024 or higher."
+
         this is BindException -> "Port $port is already in use. Try another one."
         this is SecurityException -> "The system blocked opening port $port."
         else -> message ?: this::class.java.simpleName
@@ -176,5 +215,6 @@ class ServerController(
 
     private companion object {
         const val LOOPBACK_HOST = "127.0.0.1"
+        const val FIRST_UNPRIVILEGED_PORT = 1024
     }
 }

@@ -8,6 +8,7 @@ import com.tonyt.magicpaste.files.AndroidFileStore
 import com.tonyt.magicpaste.files.StorageAccess
 import com.tonyt.magicpaste.domain.MagicPasteServer
 import com.tonyt.magicpaste.domain.TokenSource
+import com.tonyt.magicpaste.net.MdnsResponder
 import com.tonyt.magicpaste.server.ServerController
 import java.security.SecureRandom
 
@@ -36,11 +37,13 @@ class MagicPasteApp : Application() {
             tokens = SecureTokenSource,
             device = deviceDescription(),
             certificateDirectory = filesDir,
-        ) {
-            // Only offered once the user has granted storage access; until then
-            // the server simply has no file manager.
-            if (StorageAccess.isGranted(this)) AndroidFileStore(StorageAccess.root()) else null
-        }
+            files = {
+                // Only offered once the user has granted storage access; until then
+                // the server simply has no file manager.
+                if (StorageAccess.isGranted(this)) AndroidFileStore(StorageAccess.root()) else null
+            },
+            mdns = { hostname -> MdnsResponder(this, hostname) },
+        )
     }
 }
 
@@ -52,6 +55,16 @@ class Settings(context: Context) {
     var port: Int
         get() = preferences.getInt(KEY_PORT, MagicPasteServer.DEFAULT_PORT)
         set(value) = preferences.edit { putInt(KEY_PORT, value) }
+
+    /**
+     * The `.local` name this device answers mDNS queries for. A stored value
+     * that fails today's validation is replaced with the default rather than
+     * advertised — a name the responder cannot legally serve helps nobody.
+     */
+    var mdnsHost: String
+        get() = preferences.getString(KEY_MDNS_HOST, null)?.takeIf(::isValidMdnsHost)
+            ?: DEFAULT_MDNS_HOST
+        set(value) = preferences.edit { putString(KEY_MDNS_HOST, value) }
 
     /**
      * The PIN visitors must enter. Generated on first read rather than defaulted
@@ -96,8 +109,19 @@ class Settings(context: Context) {
 
     companion object {
         const val PIN_LENGTH = 4
+        const val DEFAULT_MDNS_HOST = "magicpaste.local"
+
+        /**
+         * One DNS label plus `.local`: letters, digits and inner hyphens, at
+         * most 63 characters before the suffix.
+         */
+        private val MDNS_HOST_PATTERN =
+            Regex("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.local")
+
+        fun isValidMdnsHost(host: String): Boolean = MDNS_HOST_PATTERN.matches(host)
 
         private const val KEY_PORT = "port"
+        private const val KEY_MDNS_HOST = "mdns_host"
         private const val KEY_PIN = "pin"
         private const val KEY_SHARE_CLIPBOARD = "share_clipboard"
         private const val KEY_SHARE_FILES = "share_files"

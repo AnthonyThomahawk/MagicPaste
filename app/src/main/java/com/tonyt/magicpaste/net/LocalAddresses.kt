@@ -40,8 +40,17 @@ object LocalAddresses {
     /** `http://…:port` — or `https://` when [secure] — for each address in [candidates]. */
     fun urls(port: Int, secure: Boolean = false): List<String> {
         val scheme = if (secure) "https" else "http"
-        return candidates().map { "$scheme://$it:$port" }
+        return candidates().map { "$scheme://$it${portSuffix(port, secure)}" }
     }
+
+    /** Empty for the scheme's default port, so `http://…:80` shows as `http://…`. */
+    fun portSuffix(port: Int, secure: Boolean): String {
+        val default = if (secure) HTTPS_PORT else HTTP_PORT
+        return if (port == default) "" else ":$port"
+    }
+
+    private const val HTTP_PORT = 80
+    private const val HTTPS_PORT = 443
 
     /** A prefix this long leaves no room for anyone else on the network. */
     private const val HOST_ONLY_PREFIX = 32

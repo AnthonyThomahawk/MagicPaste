@@ -11,6 +11,11 @@
 
     <string name="port_label">Port</string>
     <string name="port_error">Pick a port between %1$d and %2$d</string>
+    <string name="port_privileged_hint">Some devices reserve ports below 1024 — if sharing fails to start, pick a higher port.</string>
+
+    <string name="mdns_host_label">Local network name</string>
+    <string name="mdns_host_detail">Reachable as %1$s from devices that support mDNS.</string>
+    <string name="mdns_host_error">Use lowercase letters, digits and hyphens, ending in .local</string>
 
     <string name="pin_label">PIN</string>
     <string name="pin_error">The PIN is %1$d digits</string>
