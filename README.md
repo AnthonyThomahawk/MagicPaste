@@ -9,14 +9,15 @@
 
 Turns an Android device into a small web server on the local Wi-Fi network that
 shares its clipboard and its files. Anyone on the same network who knows the PIN
-opens `http://<device-ip>:8123` in a browser and can read what the phone copied,
-push text back onto its clipboard, and browse, download, upload, rename and
-delete files on the device.
+opens `http://magicpaste.local:8123` — or `http://<device-ip>:8123` — in a
+browser and can read what the phone copied, push text back onto its clipboard,
+and browse, download, upload, rename and delete files on the device.
 
 |  | |
 | --- | --- |
 | 📋 **Clipboard** | Live both ways. Copy on the phone and it appears in the browser within a second; send text back and it lands on the clipboard immediately. |
 | 📁 **Files** | Browse shared storage, download, upload by drag and drop, create folders, rename, move, delete. |
+| 🏷️ **Name** | Reachable as `magicpaste.local` — or any `.local` name you pick — via mDNS, so nobody has to read an IP address off a phone screen. |
 | 🔒 **PIN** | Four digits, guarded by a throttle that makes guessing impractical. Nothing is served without it. |
 | 🔒 **HTTPS** | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
 | 📵 **No internet** | Nothing leaves your network. No account, no cloud, no external requests — the page is entirely self-contained. |
@@ -26,9 +27,12 @@ delete files on the device.
 1. Open MagicPaste, choose what to share — **Clipboard**, **Files**, or both —
    optionally switch on **Encrypt traffic (HTTPS)**, and tap **Start sharing**. The port defaults to `8123` and the PIN is a random
    4 digits on first launch; everything is editable while stopped and remembered
-   between launches.
-2. The app lists every address the device can be reached at — usually one, Wi-Fi
-   first. Open it on a laptop, tablet or another phone on the same network.
+   between launches, including the `.local` name the device answers to. On
+   devices that allow it (recent Android does), port `80` works too, and then
+   the URL needs no port at all: `http://magicpaste.local`.
+2. The app lists every address the device can be reached at — the `.local` name
+   first, then each IP, Wi-Fi first. Open one on a laptop, tablet or another
+   phone on the same network.
 3. The browser asks for the PIN, then shows the device clipboard live, with a box
    to send text the other way.
 4. For files, tap **Grant file access** in the app once, then follow *Browse files
@@ -129,7 +133,24 @@ store; anchoring trust through a path the network never touched is what makes a
 later warning mean something.
 
 The certificate is regenerated whenever the device's address set changes, so its
-SAN keeps matching after DHCP moves you.
+SAN keeps matching after DHCP moves you. The `.local` name is in the SAN too,
+so a trusted certificate stays valid however the page was reached.
+
+**The `.local` name is answered by the app itself.** Android's `NsdManager` can
+only advertise service instances, not make a hostname of your choosing
+resolvable — so MagicPaste speaks mDNS directly: it joins the multicast group
+and answers A-record queries for the configured name with the device's
+addresses. On a device with several networks (Wi-Fi plus a hotspot, say) it
+answers with the address on the asker's own subnet, so each side gets one it can
+actually reach. The name follows DNS label rules — lowercase letters, digits and
+inner hyphens, ending in `.local` — and `magicpaste.local` is the default.
+
+Resolution happens on the *visiting* device, so it works wherever mDNS does:
+macOS, iOS, Windows 10 and later, Android, and Linux with `avahi-daemon` and
+`nss-mdns` installed. On networks that filter multicast — guest Wi-Fi and
+AP isolation are the usual culprits — the name silently fails, which is why the
+plain IP addresses are always listed alongside it. There is no central registry:
+if two devices claim the same name, whichever answers first wins.
 
 **Nothing can address a file outside the shared root.** Two independent defences,
 because path traversal is the failure mode this feature would have. `VirtualPath`
