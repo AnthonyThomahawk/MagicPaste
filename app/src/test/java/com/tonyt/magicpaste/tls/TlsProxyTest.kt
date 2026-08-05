@@ -123,6 +123,49 @@ class TlsProxyTest {
     }
 
     @Test
+    fun `a bare-name request on the plain http port is redirected to the tls port`() {
+        val origin = FakeOrigin("unused").apply { start() }
+        val certificate = DeviceCertificate.loadOrCreate(folder.newFolder(), listOf(LOOPBACK))
+        val port = freePort()
+        val catchPort = freePort()
+        val proxy = TlsProxy(
+            certificate,
+            listenPort = port,
+            forwardToPort = origin.port,
+            plainHttpPort = catchPort,
+        )
+
+        try {
+            proxy.start()
+            // What typing `magicpaste.local` into a browser produces: plain HTTP
+            // against port 80 — stood in for by an ephemeral port, since tests
+            // cannot bind the real one.
+            val response = plainRequest(catchPort, "GET / HTTP/1.1\r\nHost: magicpaste.local\r\n\r\n")
+
+            assertTrue("expected a redirect, got: ${response.take(80)}", response.startsWith("HTTP/1.1 307"))
+            assertTrue(
+                "expected the tls port in the Location, got: ${response.take(200)}",
+                response.contains("Location: https://magicpaste.local:$port/"),
+            )
+        } finally {
+            proxy.stop()
+            origin.stop()
+        }
+    }
+
+    @Test
+    fun `the redirect omits the port that https already implies`() {
+        assertEquals(
+            "https://magicpaste.local/paste",
+            TlsProxy.httpsLocation("magicpaste.local", 443, "/paste"),
+        )
+        assertEquals(
+            "https://magicpaste.local:8123/",
+            TlsProxy.httpsLocation("magicpaste.local", 8123, "/"),
+        )
+    }
+
+    @Test
     fun `sniffing the first byte does not disturb the tls handshake`() {
         // The byte peeked to tell HTTP from TLS is handed back to the SSL layer;
         // if that were wrong, every handshake would fail. Covered by the request

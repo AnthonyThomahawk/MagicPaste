@@ -24,14 +24,21 @@ import javax.net.ssl.SSLServerSocket
  * server binds to loopback where nothing else can reach it, and this stands in
  * front of it.
  *
- * There are three sockets involved:
+ * There are four sockets involved:
  *
  * ```
  *  browser ──► [listenPort]  sniffs the first byte
  *                 │
  *                 ├─ 0x16 ──► [loopback TLS]  handshake, decrypt ──► [http server]
  *                 └─ "GET" ─► 307 to https://…
+ *
+ *  browser ──► [port 80]  ─► 307 to https://…
  * ```
+ *
+ * The port-80 socket exists for the bare name: typing `magicpaste.local` into a
+ * browser means `http://magicpaste.local` means port 80, whatever port the proxy
+ * listens on. Without a catcher there, the friendly URL dies with a connection
+ * refused before the sniffing port ever sees a byte.
  *
  * The detour through a loopback TLS socket exists because the JSSE call that
  * layers TLS onto an already-accepted socket while replaying peeked bytes —
@@ -45,9 +52,15 @@ class TlsProxy(
     private val certificate: DeviceCertificate,
     val listenPort: Int,
     private val forwardToPort: Int,
+    /**
+     * Where plain-HTTP strays are caught and redirected — port 80 in real use,
+     * an ephemeral port in tests, null when [listenPort] already covers it.
+     */
+    private val plainHttpPort: Int? = HTTP_DEFAULT_PORT.takeIf { it != listenPort },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var publicSocket: ServerSocket? = null
+    private var catchSocket: ServerSocket? = null
     private var tlsSocket: SSLServerSocket? = null
 
     /** Binds the port. Throws if it is taken, matching the plain server's behaviour. */
@@ -64,12 +77,20 @@ class TlsProxy(
         val public = ServerSocket(listenPort)
         publicSocket = public
         acceptLoop(public) { it.sniff(tls.localPort) }
+
+        // Best-effort, like mDNS: some devices reserve low ports, and losing
+        // this bind only loses the bare-name shortcut, not the server.
+        catchSocket = plainHttpPort
+            ?.let { port -> runCatching { ServerSocket(port) }.getOrNull() }
+            ?.also { catcher -> acceptLoop(catcher) { it.catchPlainHttp() } }
     }
 
     fun stop() {
         runCatching { publicSocket?.close() }
+        runCatching { catchSocket?.close() }
         runCatching { tlsSocket?.close() }
         publicSocket = null
+        catchSocket = null
         tlsSocket = null
         scope.cancel()
     }
@@ -114,6 +135,20 @@ class TlsProxy(
     }
 
     /**
+     * The port-80 handler: everything arriving here is a browser that was given
+     * a bare hostname, so there is nothing to sniff — just point it at TLS.
+     */
+    private fun Socket.catchPlainHttp() {
+        soTimeout = FIRST_BYTE_TIMEOUT_MILLIS
+        val first = runCatching { getInputStream().read() }.getOrDefault(-1)
+        if (first == -1) {
+            runCatching { close() }
+            return
+        }
+        redirectToHttps(first)
+    }
+
+    /**
      * Pumps this socket to a local port, optionally sending [replaying] ahead of
      * everything else — the byte taken off the wire to identify the protocol,
      * which the far end still needs.
@@ -152,7 +187,7 @@ class TlsProxy(
             val host = request.host ?: localAddress.hostAddress ?: return
             val response = buildString {
                 append("HTTP/1.1 307 Temporary Redirect\r\n")
-                append("Location: https://$host:$listenPort${request.path}\r\n")
+                append("Location: ${httpsLocation(host, listenPort, request.path)}\r\n")
                 append("Cache-Control: no-store\r\n")
                 append("Content-Length: 0\r\n")
                 append("Connection: close\r\n\r\n")
@@ -211,6 +246,15 @@ class TlsProxy(
 
         /** The record type that opens every TLS handshake. */
         private const val TLS_HANDSHAKE_RECORD = 0x16
+
+        private const val HTTP_DEFAULT_PORT = 80
+        private const val HTTPS_DEFAULT_PORT = 443
+
+        /** The HTTPS address of [host], portless when `https://` already implies [port]. */
+        internal fun httpsLocation(host: String, port: Int, path: String): String {
+            val suffix = if (port == HTTPS_DEFAULT_PORT) "" else ":$port"
+            return "https://$host$suffix$path"
+        }
 
         private const val RELAY_BUFFER_BYTES = 32 * 1024
         private const val FIRST_BYTE_TIMEOUT_MILLIS = 10_000
