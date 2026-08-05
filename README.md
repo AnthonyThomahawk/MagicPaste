@@ -9,7 +9,7 @@
 
 Turns an Android device into a small web server on the local Wi-Fi network that
 shares its clipboard and its files. Anyone on the same network who knows the PIN
-opens `http://magicpaste.local:8123` — or `http://<device-ip>:8123` — in a
+opens `http://magicpaste.local` — or `http://<device-ip>` — in a
 browser and can read what the phone copied, push text back onto its clipboard,
 and browse, download, upload, rename and delete files on the device.
 
@@ -25,11 +25,14 @@ and browse, download, upload, rename and delete files on the device.
 ## Using it
 
 1. Open MagicPaste, choose what to share — **Clipboard**, **Files**, or both —
-   optionally switch on **Encrypt traffic (HTTPS)**, and tap **Start sharing**. The port defaults to `8123` and the PIN is a random
-   4 digits on first launch; everything is editable while stopped and remembered
-   between launches, including the `.local` name the device answers to. On
-   devices that allow it (recent Android does), port `80` works too, and then
-   the URL needs no port at all: `http://magicpaste.local`.
+   optionally switch on **Encrypt traffic (HTTPS)**, and tap **Start sharing**.
+   The PIN is a random 4 digits on first launch; everything is editable while
+   stopped and remembered between launches, including the `.local` name the
+   device answers to. By default the app uses the standard port — `80`, or `443`
+   when encrypting — so the URL needs no port at all: `http://magicpaste.local`.
+   Devices that refuse the low ports (recent Android allows them) can switch on
+   **Custom port** and pick any other, reachable as `http://magicpaste.local:8123`
+   and the like.
 2. The app lists every address the device can be reached at — the `.local` name
    first, then each IP, Wi-Fi first. Open one on a laptop, tablet or another
    phone on the same network.
@@ -44,8 +47,8 @@ Pass the PIN as a header instead of logging in (add `-k` when encryption is on,
 since the certificate is self-signed):
 
 ```sh
-curl -H 'X-MagicPaste-Pin: 4242' http://192.168.1.42:8123/raw
-curl -H 'X-MagicPaste-Pin: 4242' -d 'hello' http://192.168.1.42:8123/raw
+curl -H 'X-MagicPaste-Pin: 4242' http://192.168.1.42/raw
+curl -H 'X-MagicPaste-Pin: 4242' -d 'hello' http://192.168.1.42/raw
 ```
 
 ## What gets shared
@@ -57,7 +60,7 @@ start; the switches are disabled while running rather than pretending otherwise.
 
 Clipboard sharing is on by default and files are off, since files expose
 considerably more. The bare address lands on whichever page exists: share only
-files and `http://<device-ip>:8123` opens the file manager directly. With both
+files and `http://<device-ip>` opens the file manager directly. With both
 on, each page carries a link to the other.
 
 ## Files
@@ -113,6 +116,12 @@ that reads one byte first: `0x16` opens every TLS handshake, an ASCII method
 opens every HTTP request, and that is enough to tell them apart. Plaintext gets a
 `307` to the same path over HTTPS. Temporary rather than permanent on purpose — a
 cached `308` would strand browsers on HTTPS after encryption is switched back off.
+
+The same goes for the bare *name*: typing `magicpaste.local` means
+`http://magicpaste.local` means port 80, whatever port is configured. While
+encryption is on the app also listens there — best-effort, on devices that allow
+the low port — purely to answer that request with the same `307` to the HTTPS
+address, portless when the port is 443.
 
 That defeats **passive** interception completely: someone on your Wi-Fi running a
 packet capture sees TLS records, not your PIN and not your files. It does not by

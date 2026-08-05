@@ -14,7 +14,7 @@ import java.net.NetworkInterface
 
 /**
  * Answers mDNS queries for a single `.local` hostname, so other devices can open
- * `http://magicpaste.local:8123` instead of hunting down an IP address.
+ * `http://magicpaste.local` instead of hunting down an IP address.
  *
  * Android's [android.net.nsd.NsdManager] can only advertise *service instances*
  * — it offers no way to make a hostname of our choosing resolvable — so this

@@ -9,6 +9,10 @@
     <string name="open_on_any_device">Open this on another device on the same network:</string>
     <string name="no_network">Not connected to a network. Join a Wi‑Fi network or turn on a hotspot.</string>
 
+    <string name="custom_port">Custom port</string>
+    <string name="custom_port_detail">Share on a port of your choosing.</string>
+    <string name="default_port_detail">Using the standard port (%1$d), so addresses need no port number.</string>
+
     <string name="port_label">Port</string>
     <string name="port_error">Pick a port between %1$d and %2$d</string>
     <string name="port_privileged_hint">Some devices reserve ports below 1024 — if sharing fails to start, pick a higher port.</string>

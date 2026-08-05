@@ -206,7 +206,7 @@ class ServerController(
         // allows it, others reserve everything below 1024 — and a refusal
         // surfaces as either exception depending on the API level.
         (this is BindException || this is SecurityException) && port < FIRST_UNPRIVILEGED_PORT ->
-            "This device does not let apps open port $port. Pick 1024 or higher."
+            "This device does not let apps open port $port. Turn on Custom port and pick 1024 or higher."
 
         this is BindException -> "Port $port is already in use. Try another one."
         this is SecurityException -> "The system blocked opening port $port."

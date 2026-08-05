@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
                     status = status,
                     clipboard = clipboard,
                     initialPort = app.settings.port,
+                    initialUseCustomPort = app.settings.useCustomPort,
                     initialMdnsHost = app.settings.mdnsHost,
                     initialPin = app.settings.pin,
                     initialShareClipboard = app.settings.shareClipboard,
@@ -155,7 +156,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startSharing(
-        port: Int,
+        customPort: Int,
+        useCustomPort: Boolean,
         mdnsHost: String,
         pin: String,
         shareClipboard: Boolean,
@@ -165,14 +167,15 @@ class MainActivity : ComponentActivity() {
         // Saved before the service starts, because the service reads its
         // configuration back out of settings rather than off the intent.
         with(magicPaste.settings) {
-            this.port = port
+            this.port = customPort
+            this.useCustomPort = useCustomPort
             this.mdnsHost = mdnsHost
             this.pin = pin
             this.shareClipboard = shareClipboard
             this.shareFiles = shareFiles
             this.useTls = useTls
         }
-        MagicPasteService.start(this, port)
+        MagicPasteService.start(this, magicPaste.settings.effectivePort)
     }
 }
 
@@ -181,13 +184,14 @@ fun MagicPasteScreen(
     status: ServerStatus,
     clipboard: ClipboardSnapshot,
     initialPort: Int,
+    initialUseCustomPort: Boolean,
     initialMdnsHost: String,
     initialPin: String,
     initialShareClipboard: Boolean,
     initialShareFiles: Boolean,
     initialUseTls: Boolean,
     storageGranted: Boolean,
-    onStart: (port: Int, mdnsHost: String, pin: String, shareClipboard: Boolean, shareFiles: Boolean, useTls: Boolean) -> Unit,
+    onStart: (customPort: Int, useCustomPort: Boolean, mdnsHost: String, pin: String, shareClipboard: Boolean, shareFiles: Boolean, useTls: Boolean) -> Unit,
     onStop: () -> Unit,
     onNewPin: () -> String,
     onGrantStorage: () -> Unit,
@@ -195,13 +199,16 @@ fun MagicPasteScreen(
 ) {
     val context = LocalContext.current
     var portText by rememberSaveable { mutableStateOf(initialPort.toString()) }
+    var useCustomPort by rememberSaveable { mutableStateOf(initialUseCustomPort) }
     var mdnsHostText by rememberSaveable { mutableStateOf(initialMdnsHost) }
     var pinText by rememberSaveable { mutableStateOf(initialPin) }
     var shareClipboard by rememberSaveable { mutableStateOf(initialShareClipboard) }
     var shareFiles by rememberSaveable { mutableStateOf(initialShareFiles) }
     var useTls by rememberSaveable { mutableStateOf(initialUseTls) }
-    val port = portText.toIntOrNull()
-    val portIsValid = port != null && port in MIN_PORT..MAX_PORT
+    val customPort = portText.toIntOrNull()
+    // The default ports need no validating; only a typed one can be wrong.
+    val portIsValid = !useCustomPort ||
+        (customPort != null && customPort in MIN_PORT..MAX_PORT)
     val mdnsHostIsValid = Settings.isValidMdnsHost(mdnsHostText)
     val pinIsValid = pinText.length == Settings.PIN_LENGTH
     val isStopped = status is ServerStatus.Stopped || status is ServerStatus.Failed
@@ -214,7 +221,12 @@ fun MagicPasteScreen(
     // invisible — so either answer leads to the same next step.
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { onStart(port ?: initialPort, mdnsHostText, pinText, shareClipboard, filesShared, useTls) }
+    ) {
+        onStart(
+            customPort ?: initialPort, useCustomPort,
+            mdnsHostText, pinText, shareClipboard, filesShared, useTls,
+        )
+    }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
@@ -254,29 +266,15 @@ fun MagicPasteScreen(
 
             SecurityCard(
                 useTls = useTls,
+                useCustomPort = useCustomPort,
+                portText = portText,
+                customPort = customPort,
+                portIsValid = portIsValid,
                 isStopped = isStopped,
                 fingerprint = (status as? ServerStatus.Running)?.fingerprint,
                 onUseTls = { useTls = it },
-            )
-
-            OutlinedTextField(
-                value = portText,
-                onValueChange = { portText = it.filter(Char::isDigit).take(5) },
-                label = { Text(stringResource(R.string.port_label)) },
-                singleLine = true,
-                enabled = isStopped,
-                isError = portText.isNotEmpty() && !portIsValid,
-                supportingText = {
-                    if (portText.isNotEmpty() && !portIsValid) {
-                        Text(stringResource(R.string.port_error, MIN_PORT, MAX_PORT))
-                    } else if (port != null && port < FIRST_UNPRIVILEGED_PORT) {
-                        // Not an error — some devices do allow it — but the
-                        // usual outcome is worth knowing before tapping Start.
-                        Text(stringResource(R.string.port_privileged_hint))
-                    }
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth(),
+                onUseCustomPort = { useCustomPort = it },
+                onPortText = { portText = it.filter(Char::isDigit).take(5) },
             )
 
             OutlinedTextField(
@@ -327,11 +325,13 @@ fun MagicPasteScreen(
             if (isStopped) {
                 Button(
                     onClick = {
-                        val chosen = port ?: return@Button
                         if (context.needsNotificationPermission()) {
                             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            onStart(chosen, mdnsHostText, pinText, shareClipboard, filesShared, useTls)
+                            onStart(
+                                customPort ?: initialPort, useCustomPort,
+                                mdnsHostText, pinText, shareClipboard, filesShared, useTls,
+                            )
                         }
                     },
                     enabled = portIsValid && mdnsHostIsValid && pinIsValid && hasSomethingToShare,
@@ -499,19 +499,29 @@ private fun SharingCard(
 }
 
 /**
- * The encryption switch and, once running, the fingerprint to check against.
+ * The encryption switch, the port it is served on, and, once running, the
+ * fingerprint to check against.
  *
  * The fingerprint is the whole point of showing anything here: a self-signed
  * certificate encrypts the connection but proves nothing about who is on the
  * other end, and comparing this against what the browser reports is what turns
  * "encrypted" into "encrypted, to this device".
+ *
+ * The port lives here because it and the switch decide the address together:
+ * default means the scheme's own port and a URL without one.
  */
 @Composable
 private fun SecurityCard(
     useTls: Boolean,
+    useCustomPort: Boolean,
+    portText: String,
+    customPort: Int?,
+    portIsValid: Boolean,
     isStopped: Boolean,
     fingerprint: Fingerprint?,
     onUseTls: (Boolean) -> Unit,
+    onUseCustomPort: (Boolean) -> Unit,
+    onPortText: (String) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -535,6 +545,42 @@ private fun SecurityCard(
                 enabled = isStopped,
                 onCheckedChange = onUseTls,
             )
+
+            ToggleRow(
+                label = stringResource(R.string.custom_port),
+                description = if (useCustomPort) {
+                    stringResource(R.string.custom_port_detail)
+                } else {
+                    stringResource(R.string.default_port_detail, Settings.defaultPort(useTls))
+                },
+                checked = useCustomPort,
+                enabled = isStopped,
+                onCheckedChange = onUseCustomPort,
+            )
+
+            if (useCustomPort) {
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = onPortText,
+                    label = { Text(stringResource(R.string.port_label)) },
+                    singleLine = true,
+                    enabled = isStopped,
+                    isError = portText.isNotEmpty() && !portIsValid,
+                    supportingText = {
+                        if (portText.isNotEmpty() && !portIsValid) {
+                            Text(stringResource(R.string.port_error, MIN_PORT, MAX_PORT))
+                        } else if (customPort != null && customPort < FIRST_UNPRIVILEGED_PORT) {
+                            // Not an error — some devices do allow it — but the
+                            // usual outcome is worth knowing before tapping Start.
+                            Text(stringResource(R.string.port_privileged_hint))
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                )
+            }
 
             if (fingerprint != null) {
                 FingerprintPanel(fingerprint)
@@ -706,13 +752,14 @@ private fun RunningPreview() {
             status = ServerStatus.Running(8123, listOf("http://192.168.1.42:8123")),
             clipboard = ClipboardSnapshot("the quick brown fox", 3),
             initialPort = 8123,
+            initialUseCustomPort = false,
             initialMdnsHost = Settings.DEFAULT_MDNS_HOST,
             initialPin = "4183",
             initialShareClipboard = true,
             initialShareFiles = true,
             initialUseTls = true,
             storageGranted = true,
-            onStart = { _, _, _, _, _, _ -> },
+            onStart = { _, _, _, _, _, _, _ -> },
             onStop = {},
             onNewPin = { "0000" },
             onGrantStorage = {},

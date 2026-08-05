@@ -65,7 +65,7 @@ class MagicPasteService : Service() {
 
             else -> {
                 val settings = magicPaste.settings
-                val port = intent?.getIntExtra(EXTRA_PORT, 0)?.takeIf { it > 0 } ?: settings.port
+                val port = intent?.getIntExtra(EXTRA_PORT, 0)?.takeIf { it > 0 } ?: settings.effectivePort
                 controller.start(
                     port = port,
                     pin = settings.pin,

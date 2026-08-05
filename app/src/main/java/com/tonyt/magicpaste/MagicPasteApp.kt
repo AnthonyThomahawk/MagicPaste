@@ -52,9 +52,23 @@ class Settings(context: Context) {
 
     private val preferences = context.getSharedPreferences("magicpaste", Context.MODE_PRIVATE)
 
+    /**
+     * Whether the user picked their own port. Off by default: the standard
+     * ports produce addresses with no port number in them at all, which is the
+     * whole point of having a friendly `.local` name.
+     */
+    var useCustomPort: Boolean
+        get() = preferences.getBoolean(KEY_USE_CUSTOM_PORT, false)
+        set(value) = preferences.edit { putBoolean(KEY_USE_CUSTOM_PORT, value) }
+
+    /** The custom port. Only consulted when [useCustomPort] is on. */
     var port: Int
         get() = preferences.getInt(KEY_PORT, MagicPasteServer.DEFAULT_PORT)
         set(value) = preferences.edit { putInt(KEY_PORT, value) }
+
+    /** The port sharing actually binds: the custom one, or the scheme's default. */
+    val effectivePort: Int
+        get() = if (useCustomPort) port else defaultPort(useTls)
 
     /**
      * The `.local` name this device answers mDNS queries for. A stored value
@@ -111,6 +125,13 @@ class Settings(context: Context) {
         const val PIN_LENGTH = 4
         const val DEFAULT_MDNS_HOST = "magicpaste.local"
 
+        const val DEFAULT_HTTP_PORT = 80
+        const val DEFAULT_HTTPS_PORT = 443
+
+        /** The port the scheme implies, so the URL carries no port at all. */
+        fun defaultPort(useTls: Boolean): Int =
+            if (useTls) DEFAULT_HTTPS_PORT else DEFAULT_HTTP_PORT
+
         /**
          * One DNS label plus `.local`: letters, digits and inner hyphens, at
          * most 63 characters before the suffix.
@@ -121,6 +142,7 @@ class Settings(context: Context) {
         fun isValidMdnsHost(host: String): Boolean = MDNS_HOST_PATTERN.matches(host)
 
         private const val KEY_PORT = "port"
+        private const val KEY_USE_CUSTOM_PORT = "use_custom_port"
         private const val KEY_MDNS_HOST = "mdns_host"
         private const val KEY_PIN = "pin"
         private const val KEY_SHARE_CLIPBOARD = "share_clipboard"
