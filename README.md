@@ -22,6 +22,14 @@ and browse, download, upload, rename and delete files on the device.
 | 🔒 **HTTPS**       | Optional encryption with a self-signed certificate, and a fingerprint in the app to check it against. |
 | 📵 **No internet** | Nothing leaves your network. No account, no cloud, no external requests — the page is entirely self-contained. |
 
+## Download
+
+[![Latest release](https://img.shields.io/github/v/release/AnthonyThomahawk/MagicPaste?label=latest%20release&color=6f42c1)](https://github.com/AnthonyThomahawk/MagicPaste/releases/latest)
+
+Grab the APK from the [latest release](https://github.com/AnthonyThomahawk/MagicPaste/releases/latest)
+and install it on your Android device — sideloading has to be allowed, since the
+app is not on a store.
+
 ## Using it
 
 1. Open MagicPaste, choose what to share — **Clipboard**, **Files**, or both —
